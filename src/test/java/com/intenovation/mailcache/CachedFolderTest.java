@@ -40,7 +40,7 @@ public class CachedFolderTest {
     public void setUp() throws MessagingException {
         MockitoAnnotations.openMocks(this);
 
-        // Set up properties
+        // Create real properties
         props = new Properties();
         props.setProperty("mail.store.protocol", "cache");
 

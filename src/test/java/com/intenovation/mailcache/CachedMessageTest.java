@@ -42,10 +42,18 @@ public class CachedMessageTest {
 
     private File messageDir;
     private CachedMessage cachedMessage;
+    private Properties props;
 
     @BeforeEach
-    public void setUp() throws MessagingException {
+    public void setUp() throws MessagingException, IOException {
         MockitoAnnotations.openMocks(this);
+
+        // Set up properties
+        props = new Properties();
+        props.setProperty("mail.store.protocol", "cache");
+
+        // Mock the session to return properties
+        when(session.getProperties()).thenReturn(props);
 
         // Set up the folder and store
         when(cachedFolder.getStore()).thenReturn(cachedStore);
@@ -70,6 +78,7 @@ public class CachedMessageTest {
         when(imapMessage.getSubject()).thenReturn("Test Subject");
         when(imapMessage.getFrom()).thenReturn(new Address[]{new InternetAddress("sender@example.com")});
         when(imapMessage.getSentDate()).thenReturn(new Date());
+        when(imapMessage.getContent()).thenReturn("This is the IMAP message content");
     }
 
     @Test
@@ -212,9 +221,6 @@ public class CachedMessageTest {
     public void testGetContentFromImapInOnlineMode() throws MessagingException, IOException {
         // Set the mode to ONLINE
         when(cachedStore.getMode()).thenReturn(CacheMode.ONLINE);
-
-        // Mock the IMAP message to return content
-        when(imapMessage.getContent()).thenReturn("This is the IMAP message content");
 
         // Create a cached message from an IMAP message
         cachedMessage = new CachedMessage(cachedFolder, imapMessage);

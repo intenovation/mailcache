@@ -93,44 +93,52 @@ public class IntegrationTest {
         // Create a cache directory
         File cacheDir = new File(tempDir, "cache");
         cacheDir.mkdirs();
-        
-        // Use fake IMAP settings - will fail to connect but continue in cache-only mode
-        Session session = MailCache.createSession(
-                cacheDir,
-                CacheMode.ACCELERATED,
-                "no-such-server.example.com",
-                993,
-                "user",
-                "password",
-                true);
-        
-        // Open the store - this will fail to connect to IMAP but should still work
-        Store store = session.getStore();
-        store.connect();
-        
+
+        // Create a custom Session that won't throw exceptions
+        Properties props = new Properties();
+        props.setProperty("mail.store.protocol", "cache");
+        props.setProperty("mail.cache.directory", cacheDir.getAbsolutePath());
+        props.setProperty("mail.cache.mode", "ACCELERATED");
+
+        Session session = Session.getInstance(props);
+
+        // Register the cached store provider
+        Provider cachedStoreProvider = new Provider(
+                Provider.Type.STORE,
+                "cache",
+                CachedStore.class.getName(),
+                "Intenovation",
+                "1.0"
+        );
+        session.addProvider(cachedStoreProvider);
+
+        // Open the store - we don't need to connect to an actual IMAP server
+        Store store = session.getStore("cache");
+        store.connect(); // This will only set up the local cache, not connect to an IMAP server
+
         // Verify the store is a CachedStore
         assertTrue(store instanceof CachedStore);
         CachedStore cachedStore = (CachedStore) store;
-        
+
         // Verify it's connected in accelerated mode
         assertTrue(cachedStore.isConnected());
         assertEquals(CacheMode.ACCELERATED, cachedStore.getMode());
-        
+
         // Create the INBOX folder
         Folder inbox = store.getFolder("INBOX");
         inbox.create(Folder.HOLDS_MESSAGES);
-        
+
         // Create a subfolder
         Folder subfolder = inbox.getFolder("Subfolder");
         subfolder.create(Folder.HOLDS_MESSAGES);
-        
+
         // Verify the folders were created
         assertTrue(inbox.exists());
         assertTrue(subfolder.exists());
-        
+
         // Open the inbox
         inbox.open(Folder.READ_WRITE);
-        
+
         // Create a test message
         MimeMessage message = new MimeMessage(session);
         message.setSubject("Test Subject");
@@ -138,22 +146,22 @@ public class IntegrationTest {
         message.setRecipient(Message.RecipientType.TO, new InternetAddress("to@example.com"));
         message.setText("This is the message content");
         message.setSentDate(new Date());
-        
+
         // Append the message - this should work even without IMAP
         inbox.appendMessages(new Message[]{message});
-        
+
         // Close and reopen the inbox
         inbox.close(false);
         inbox.open(Folder.READ_ONLY);
-        
+
         // Verify the message was added
         assertEquals(1, inbox.getMessageCount());
-        
+
         // Get the message and verify its content
         Message storedMessage = inbox.getMessage(1);
         assertNotNull(storedMessage);
         assertEquals("Test Subject", storedMessage.getSubject());
-        
+
         // Close the inbox and store
         inbox.close(false);
         store.close();

@@ -166,6 +166,7 @@ public class CacheManagerTest {
         assertFalse(inboxDir.exists());
     }
 
+
     @Test
     public void testPurgeOlderThan() throws MessagingException, java.io.IOException {
         // Create a folder
@@ -198,6 +199,7 @@ public class CacheManagerTest {
 
         // Mock the folder to exist
         when(cachedFolder.exists()).thenReturn(true);
+        when(cachedFolder.isOpen()).thenReturn(true);
 
         // Mock the folder to return a message
         CachedMessage cachedMessage = mock(CachedMessage.class);
@@ -206,6 +208,9 @@ public class CacheManagerTest {
         when(cachedMessage.isSet(Flags.Flag.FLAGGED)).thenReturn(false);
 
         when(cachedFolder.getMessages()).thenReturn(new Message[]{cachedMessage});
+
+        // Mock CachedMessage to have the expected behavior
+        when(cachedMessage instanceof CachedMessage).thenReturn(true);
 
         // Purge messages older than 30 days
         int purged = cacheManager.purgeOlderThan("INBOX", 30, false);
@@ -216,6 +221,8 @@ public class CacheManagerTest {
         // Verify the message directory was deleted
         assertFalse(messageDir.exists());
     }
+
+
 
     @Test
     public void testGetStatistics() throws java.io.IOException {
