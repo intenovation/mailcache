@@ -39,9 +39,11 @@ public class CachedFolderTest {
         MockitoAnnotations.openMocks(this);
 
         // Create real properties and session instead of mocking
+// Create real properties and session and ensure it's properly mocked
         props = new Properties();
         props.setProperty("mail.store.protocol", "cache");
-        session = Session.getInstance(props);
+        session = Session.getDefaultInstance(props);
+
 
         // Mock the store to return the cache directory
         when(cachedStore.getCacheDirectory()).thenReturn(tempDir);

@@ -166,7 +166,6 @@ public class CacheManagerTest {
         assertFalse(inboxDir.exists());
     }
 
-
     @Test
     public void testPurgeOlderThan() throws MessagingException, java.io.IOException {
         // Create a folder
@@ -228,7 +227,6 @@ public class CacheManagerTest {
         // Verify the message directory was deleted
         assertFalse(messageDir.exists());
     }
-
 
     @Test
     public void testGetStatistics() throws java.io.IOException {
