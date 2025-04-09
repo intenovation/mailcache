@@ -83,26 +83,14 @@ public class IntegrationTest {
         inbox.close(false);
         store.close();
     }
-    
-    /**
-     * Test the accelerated mode workflow without an actual IMAP server
-     * This simulates the behavior when network is unavailable
-     */
+
     @Test
     public void testAcceleratedModeOffline() throws Exception {
         // Create a cache directory
         File cacheDir = new File(tempDir, "cache");
         cacheDir.mkdirs();
 
-        // Create a custom Session that won't throw exceptions
-        Properties props = new Properties();
-        props.setProperty("mail.store.protocol", "cache");
-        props.setProperty("mail.cache.directory", cacheDir.getAbsolutePath());
-        props.setProperty("mail.cache.mode", "ACCELERATED");
-
-        Session session = Session.getInstance(props);
-
-        // Register the cached store provider
+        // Create a custom provider for our test
         Provider cachedStoreProvider = new Provider(
                 Provider.Type.STORE,
                 "cache",
@@ -110,11 +98,22 @@ public class IntegrationTest {
                 "Intenovation",
                 "1.0"
         );
+
+        // Create a session with our provider
+        Properties props = new Properties();
+        props.setProperty("mail.store.protocol", "cache");
+        props.setProperty("mail.cache.directory", cacheDir.getAbsolutePath());
+        props.setProperty("mail.cache.mode", "ACCELERATED");
+
+        Session session = Session.getInstance(props);
         session.addProvider(cachedStoreProvider);
 
-        // Open the store - we don't need to connect to an actual IMAP server
+        // Get the store
         Store store = session.getStore("cache");
-        store.connect(); // This will only set up the local cache, not connect to an IMAP server
+
+        // Connect the store (without host/user/password)
+        // This will connect in cache-only mode
+        store.connect();
 
         // Verify the store is a CachedStore
         assertTrue(store instanceof CachedStore);
@@ -166,7 +165,7 @@ public class IntegrationTest {
         inbox.close(false);
         store.close();
     }
-    
+
     /**
      * Test the cache manager functionality
      */

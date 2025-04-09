@@ -30,22 +30,18 @@ public class CachedFolderTest {
     @Mock
     Folder imapFolder;
 
-    @Mock
-    Session session;
-
     private CachedFolder cachedFolder;
     private Properties props;
+    private Session session;
 
     @BeforeEach
     public void setUp() throws MessagingException {
         MockitoAnnotations.openMocks(this);
 
-        // Create real properties
+        // Create real properties and session instead of mocking
         props = new Properties();
         props.setProperty("mail.store.protocol", "cache");
-
-        // Mock session to return properties
-        when(session.getProperties()).thenReturn(props);
+        session = Session.getInstance(props);
 
         // Mock the store to return the cache directory
         when(cachedStore.getCacheDirectory()).thenReturn(tempDir);

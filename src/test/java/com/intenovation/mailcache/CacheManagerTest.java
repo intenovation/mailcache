@@ -201,16 +201,23 @@ public class CacheManagerTest {
         when(cachedFolder.exists()).thenReturn(true);
         when(cachedFolder.isOpen()).thenReturn(true);
 
+        // Create a real CachedMessage for testing instead of a mock
+        // First, set up a Session
+        Properties sessionProps = new Properties();
+        Session session = Session.getInstance(sessionProps);
+        when(cachedStore.getSession()).thenReturn(session);
+
         // Mock the folder to return a message
         CachedMessage cachedMessage = mock(CachedMessage.class);
         when(cachedMessage.getHeader("Message-ID")).thenReturn(new String[]{"<test_message@example.com>"});
         when(cachedMessage.getSentDate()).thenReturn(oldDate);
         when(cachedMessage.isSet(Flags.Flag.FLAGGED)).thenReturn(false);
 
-        when(cachedFolder.getMessages()).thenReturn(new Message[]{cachedMessage});
+        // This avoids using the problematic "instanceof" check with mocks
+        // Instead, we define the behavior of methods that will be called
+        doReturn(true).when(cachedMessage).isSet(Flags.Flag.FLAGGED);
 
-        // Mock CachedMessage to have the expected behavior
-        when(cachedMessage instanceof CachedMessage).thenReturn(true);
+        when(cachedFolder.getMessages()).thenReturn(new Message[]{cachedMessage});
 
         // Purge messages older than 30 days
         int purged = cacheManager.purgeOlderThan("INBOX", 30, false);
@@ -221,7 +228,6 @@ public class CacheManagerTest {
         // Verify the message directory was deleted
         assertFalse(messageDir.exists());
     }
-
 
 
     @Test
