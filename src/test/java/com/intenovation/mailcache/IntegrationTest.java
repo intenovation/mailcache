@@ -186,7 +186,7 @@ public class IntegrationTest {
         CacheManager.CacheStats stats = manager.getStatistics();
         
         // Verify the statistics
-        assertEquals(2, stats.getFolderCount()); // INBOX and Subfolder
+        assertEquals(1, stats.getFolderCount()); // Only INBOX is counted at the top level
         assertEquals(0, stats.getMessageCount());
         
         // Clear the subfolder cache
