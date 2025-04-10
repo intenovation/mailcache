@@ -15,7 +15,13 @@ public enum CacheMode {
     ACCELERATED,
 
     /**
-     * Online mode - searching happens online, reading uses cache for speed
+     * Online mode - searching happens online, reading uses cache for speed,  writing happens both locally and on server
      */
-    ONLINE
+    ONLINE,
+
+    /**
+     * Destructive mode - only mode that allows deleting messages and folders
+     * Should be used with caution, same as ONLINE
+     */
+    DESTRUCTIVE
 }

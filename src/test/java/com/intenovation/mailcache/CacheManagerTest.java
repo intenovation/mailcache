@@ -46,7 +46,7 @@ public class CacheManagerTest {
         when(cachedStore.getFolder("INBOX")).thenReturn(cachedFolder);
 
         // Mock the mode
-        when(cachedStore.getMode()).thenReturn(CacheMode.ACCELERATED);
+        when(cachedStore.getMode()).thenReturn(CacheMode.DESTRUCTIVE);
 
         // Get the cache manager
         cacheManager = CacheManager.getInstance(cachedStore);
@@ -124,7 +124,7 @@ public class CacheManagerTest {
     }
 
     @Test
-    public void testClearCache() {
+    public void testClearCache() throws MessagingException {
         // Create a folder
         File inboxDir = new File(tempDir, "INBOX");
         inboxDir.mkdirs();
@@ -147,7 +147,7 @@ public class CacheManagerTest {
     }
 
     @Test
-    public void testClearFolderCache() {
+    public void testClearFolderCache() throws MessagingException {
         // Create a folder
         File inboxDir = new File(tempDir, "INBOX");
         inboxDir.mkdirs();

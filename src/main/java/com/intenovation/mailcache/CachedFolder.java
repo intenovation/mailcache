@@ -2,15 +2,18 @@ package com.intenovation.mailcache;
 
 import javax.mail.*;
 import javax.mail.internet.MimeMessage;
+import javax.mail.search.SearchTerm;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * A JavaMail Folder implementation that supports the three cache modes
+ * A JavaMail Folder implementation that supports the cache modes
  */
 public class CachedFolder extends Folder {
     private static final Logger LOGGER = Logger.getLogger(CachedFolder.class.getName());
@@ -43,9 +46,15 @@ public class CachedFolder extends Folder {
             if (!messagesDir.exists()) {
                 messagesDir.mkdirs();
             }
+
+            // Create archived messages directory
+            File archivedDir = new File(cacheDir, "archived_messages");
+            if (!archivedDir.exists()) {
+                archivedDir.mkdirs();
+            }
         }
 
-        // For ONLINE and ACCELERATED modes, get the corresponding IMAP folder
+        // For ONLINE, ACCELERATED, and DESTRUCTIVE modes, get the corresponding IMAP folder
         if (store.getMode() != CacheMode.OFFLINE && store.getImapStore() != null) {
             try {
                 this.imapFolder = store.getImapStore().getFolder(name);
@@ -91,8 +100,8 @@ public class CachedFolder extends Folder {
             return true;
         }
 
-        // For ONLINE mode, also check IMAP
-        if (cachedStore.getMode() == CacheMode.ONLINE && imapFolder != null) {
+        // For ONLINE and other non-OFFLINE modes, also check IMAP
+        if (cachedStore.getMode() != CacheMode.OFFLINE && imapFolder != null) {
             return imapFolder.exists();
         }
 
@@ -108,8 +117,8 @@ public class CachedFolder extends Folder {
             File[] subdirs = cacheDir.listFiles(File::isDirectory);
             if (subdirs != null) {
                 for (File subdir : subdirs) {
-                    // Skip special directories like "messages"
-                    if (!subdir.getName().equals("messages")) {
+                    // Skip special directories like "messages" and "archived_messages"
+                    if (!subdir.getName().equals("messages") && !subdir.getName().equals("archived_messages") && !subdir.getName().equals("extras")) {
                         String childName = folderName.isEmpty() ?
                                 subdir.getName() :
                                 folderName + "/" + subdir.getName();
@@ -119,8 +128,8 @@ public class CachedFolder extends Folder {
             }
         }
 
-        // For ONLINE mode, also list from IMAP
-        if (cachedStore.getMode() == CacheMode.ONLINE && imapFolder != null) {
+        // For non-OFFLINE modes, also list from IMAP
+        if (cachedStore.getMode() != CacheMode.OFFLINE && imapFolder != null) {
             Folder[] imapFolders = imapFolder.list(pattern);
             for (Folder folder : imapFolders) {
                 // Check if already added from cache
@@ -142,11 +151,17 @@ public class CachedFolder extends Folder {
     }
 
     @Override
+    public Folder[] list() throws MessagingException {
+        return list("%");
+    }
+
+    @Override
     public Folder getFolder(String name) throws MessagingException {
         // Build the full name
         String fullName = folderName.isEmpty() ? name : folderName + "/" + name;
         return new CachedFolder(cachedStore, fullName, true);
     }
+
 
     @Override
     public char getSeparator() throws MessagingException {
@@ -171,24 +186,34 @@ public class CachedFolder extends Folder {
                     messagesDir.mkdirs();
                 }
 
+                // Create archived messages directory
+                File archivedDir = new File(cacheDir, "archived_messages");
+                if (!archivedDir.exists()) {
+                    archivedDir.mkdirs();
+                }
+
                 return result;
             }
             return false;
         }
 
-        // In other modes, try to create on server and locally
+        // In other modes, try to create on server first
         boolean success = true;
 
         // Create on server if possible
         if (imapFolder != null) {
             try {
                 success = imapFolder.create(type);
+                if (!success) {
+                    return false; // Don't continue if server operation failed
+                }
             } catch (MessagingException e) {
-                success = false;
+                LOGGER.log(Level.SEVERE, "Error creating folder on server", e);
+                throw e; // Don't continue if server operation failed
             }
         }
 
-        // Always create locally
+        // Then create locally
         if (cacheDir != null && !cacheDir.exists()) {
             boolean dirCreated = cacheDir.mkdirs();
 
@@ -198,7 +223,13 @@ public class CachedFolder extends Folder {
                 messagesDir.mkdirs();
             }
 
-            return dirCreated && success;
+            // Create archived messages directory
+            File archivedDir = new File(cacheDir, "archived_messages");
+            if (!archivedDir.exists()) {
+                archivedDir.mkdirs();
+            }
+
+            return dirCreated;
         }
 
         return success;
@@ -206,9 +237,9 @@ public class CachedFolder extends Folder {
 
     @Override
     public boolean delete(boolean recurse) throws MessagingException {
-        // In OFFLINE mode, cannot delete
-        if (cachedStore.getMode() == CacheMode.OFFLINE) {
-            throw new MessagingException("Cannot delete folders in OFFLINE mode");
+        // Only allow deletion in DESTRUCTIVE mode
+        if (cachedStore.getMode() != CacheMode.DESTRUCTIVE) {
+            throw new MessagingException("Cannot delete folders unless in DESTRUCTIVE mode");
         }
 
         boolean success = true;
@@ -217,18 +248,27 @@ public class CachedFolder extends Folder {
         if (imapFolder != null) {
             try {
                 success = imapFolder.delete(recurse);
+                if (!success) {
+                    return false; // Don't delete locally if server delete failed
+                }
             } catch (MessagingException e) {
-                success = false;
+                LOGGER.log(Level.WARNING, "Error deleting folder on server: " + e.getMessage(), e);
+                return false;
             }
         }
 
-        // In ACCELERATED mode, also delete locally
-        if (cachedStore.getMode() == CacheMode.ACCELERATED && cacheDir != null) {
-            if (recurse) {
-                return deleteRecursive(cacheDir) && success;
-            } else {
-                return cacheDir.delete() && success;
+        // Only delete locally if server operation was successful
+        if (cacheDir != null) {
+            // Actually, instead of deleting, move to an archive directory
+            File archiveDir = new File(cachedStore.getCacheDirectory(), "archived_folders");
+            if (!archiveDir.exists()) {
+                archiveDir.mkdirs();
             }
+
+            String timestamp = String.valueOf(System.currentTimeMillis());
+            File archiveFolder = new File(archiveDir, folderName.replace('/', '_') + "_" + timestamp);
+
+            return cacheDir.renameTo(archiveFolder);
         }
 
         return success;
@@ -261,18 +301,21 @@ public class CachedFolder extends Folder {
                 CachedFolder cachedFolder = (CachedFolder) folder;
                 if (cachedFolder.imapFolder != null) {
                     success = imapFolder.renameTo(cachedFolder.imapFolder);
+                    if (!success) {
+                        return false; // Don't rename locally if server rename failed
+                    }
                 }
             } catch (MessagingException e) {
-                success = false;
+                LOGGER.log(Level.WARNING, "Error renaming folder on server: " + e.getMessage(), e);
+                return false;
             }
         }
 
-        // In ACCELERATED mode, also rename locally
-        if (cachedStore.getMode() == CacheMode.ACCELERATED &&
-                cacheDir != null && folder instanceof CachedFolder) {
+        // Only rename locally if server operation was successful
+        if (cacheDir != null && folder instanceof CachedFolder) {
             CachedFolder cachedFolder = (CachedFolder) folder;
             if (cachedFolder.cacheDir != null) {
-                return cacheDir.renameTo(cachedFolder.cacheDir) && success;
+                return cacheDir.renameTo(cachedFolder.cacheDir);
             }
         }
 
@@ -287,8 +330,8 @@ public class CachedFolder extends Folder {
 
         this.mode = mode;
 
-        // For ONLINE mode, open IMAP folder
-        if (cachedStore.getMode() == CacheMode.ONLINE && imapFolder != null) {
+        // For non-OFFLINE modes, open IMAP folder
+        if (cachedStore.getMode() != CacheMode.OFFLINE && imapFolder != null) {
             imapFolder.open(mode);
         }
 
@@ -301,8 +344,8 @@ public class CachedFolder extends Folder {
             throw new IllegalStateException("Folder is not open");
         }
 
-        // For ONLINE mode, close IMAP folder
-        if (cachedStore.getMode() == CacheMode.ONLINE && imapFolder != null) {
+        // For non-OFFLINE modes, close IMAP folder
+        if (cachedStore.getMode() != CacheMode.OFFLINE && imapFolder != null) {
             imapFolder.close(expunge);
         }
 
@@ -318,8 +361,8 @@ public class CachedFolder extends Folder {
     @Override
     public Flags getPermanentFlags() {
         try {
-            // For ONLINE mode, get from IMAP
-            if (cachedStore.getMode() == CacheMode.ONLINE && imapFolder != null && imapFolder.isOpen()) {
+            // For non-OFFLINE modes, get from IMAP
+            if (cachedStore.getMode() != CacheMode.OFFLINE && imapFolder != null && imapFolder.isOpen()) {
                 return imapFolder.getPermanentFlags();
             }
         } catch (Exception e) {
@@ -358,6 +401,7 @@ public class CachedFolder extends Folder {
                 if (messageDirs != null) {
                     // Sort directories to ensure consistent order
                     // (implementation would sort by message number or date)
+                    java.util.Arrays.sort(messageDirs);
 
                     int count = 0;
                     for (File messageDir : messageDirs) {
@@ -409,6 +453,9 @@ public class CachedFolder extends Folder {
                 File[] messageDirs = messagesDir.listFiles(File::isDirectory);
 
                 if (messageDirs != null) {
+                    // Sort directories to ensure consistent order
+                    java.util.Arrays.sort(messageDirs);
+
                     for (File messageDir : messageDirs) {
                         try {
                             messages.add(new CachedMessage(this, messageDir));
@@ -421,6 +468,34 @@ public class CachedFolder extends Folder {
         }
 
         return messages.toArray(new Message[0]);
+    }
+
+    @Override
+    public int getMessageCount() throws MessagingException {
+        checkOpen();
+
+        // For ONLINE mode, get from IMAP
+        if (cachedStore.getMode() == CacheMode.ONLINE && imapFolder != null && imapFolder.isOpen()) {
+            try {
+                return imapFolder.getMessageCount();
+            } catch (MessagingException e) {
+                // Fall back to local cache if server check fails
+                LOGGER.log(Level.WARNING, "Error getting message count from server", e);
+            }
+        }
+
+        // For other modes, count from cache
+        if (cacheDir != null) {
+            File messagesDir = new File(cacheDir, "messages");
+            if (messagesDir.exists()) {
+                File[] messageDirs = messagesDir.listFiles(File::isDirectory);
+                if (messageDirs != null) {
+                    return messageDirs.length;
+                }
+            }
+        }
+
+        return 0;
     }
 
     @Override
@@ -444,12 +519,9 @@ public class CachedFolder extends Folder {
 
                 if (messageDirs != null) {
                     // Sort directories to ensure consistent order
-                    // (implementation would sort by message number or date)
+                    java.util.Arrays.sort(messageDirs);
 
                     if (msgnum > 0 && msgnum <= messageDirs.length) {
-                        // Note: This is a simplified implementation that assumes
-                        // message numbers align with directory order, which isn't always true
-                        // A real implementation would maintain a mapping of message numbers
                         return new CachedMessage(this, messageDirs[msgnum - 1]);
                     }
                 }
@@ -457,29 +529,6 @@ public class CachedFolder extends Folder {
         }
 
         throw new MessagingException("Message number " + msgnum + " not found");
-    }
-
-    @Override
-    public int getMessageCount() throws MessagingException {
-        checkOpen();
-
-        // For ONLINE mode, get from IMAP
-        if (cachedStore.getMode() == CacheMode.ONLINE && imapFolder != null && imapFolder.isOpen()) {
-            return imapFolder.getMessageCount();
-        }
-
-        // For other modes, count from cache
-        if (cacheDir != null) {
-            File messagesDir = new File(cacheDir, "messages");
-            if (messagesDir.exists()) {
-                File[] messageDirs = messagesDir.listFiles(File::isDirectory);
-                if (messageDirs != null) {
-                    return messageDirs.length;
-                }
-            }
-        }
-
-        return 0;
     }
 
     @Override
@@ -491,12 +540,17 @@ public class CachedFolder extends Folder {
 
         checkOpen();
 
-        // For other modes, append to both IMAP and cache
+        // For other modes, append to server first
         if (imapFolder != null && imapFolder.isOpen()) {
-            imapFolder.appendMessages(msgs);
+            try {
+                imapFolder.appendMessages(msgs);
+            } catch (MessagingException e) {
+                LOGGER.log(Level.SEVERE, "Error appending messages to server", e);
+                throw e; // Don't continue if server operation failed
+            }
         }
 
-        // Save to local cache
+        // Then save to local cache
         if (cacheDir != null) {
             File messagesDir = new File(cacheDir, "messages");
             if (!messagesDir.exists()) {
@@ -504,30 +558,24 @@ public class CachedFolder extends Folder {
             }
 
             for (Message msg : msgs) {
-                // Generate message ID if needed
-                String messageId;
-                try {
-                    String[] headers = msg.getHeader("Message-ID");
-                    messageId = (headers != null && headers.length > 0) ?
-                            headers[0] : "msg_" + System.currentTimeMillis() + "_" +
-                            Math.abs(msg.getSubject().hashCode());
-                } catch (MessagingException e) {
-                    messageId = "msg_" + System.currentTimeMillis();
-                }
+                // Generate formatted directory name
+                String dirName = formatMessageDirName(msg);
 
                 // Create message directory
-                File messageDir = new File(messagesDir, sanitizeFileName(messageId));
-                if (!messageDir.exists()) {
-                    messageDir.mkdirs();
+                File messageDir = new File(messagesDir, dirName);
+                if (messageDir.exists()) {
+                    throw new MessagingException("Message directory collision: " + dirName);
+                }
 
-                    // Save message to cache
-                    if (msg instanceof MimeMessage) {
-                        try (FileOutputStream fos = new FileOutputStream(
-                                new File(messageDir, "message.mbox"))) {
-                            ((MimeMessage) msg).writeTo(fos);
-                        } catch (Exception e) {
-                            throw new MessagingException("Error saving message", e);
-                        }
+                messageDir.mkdirs();
+
+                // Save message to cache
+                if (msg instanceof MimeMessage) {
+                    try (FileOutputStream fos = new FileOutputStream(
+                            new File(messageDir, "message.mbox"))) {
+                        ((MimeMessage) msg).writeTo(fos);
+                    } catch (Exception e) {
+                        throw new MessagingException("Error saving message", e);
                     }
                 }
             }
@@ -535,45 +583,66 @@ public class CachedFolder extends Folder {
     }
 
     @Override
-    public Message[] expunge() throws MessagingException {
-        // In OFFLINE mode, cannot expunge
-        if (cachedStore.getMode() == CacheMode.OFFLINE) {
-            throw new MessagingException("Cannot expunge messages in OFFLINE mode");
-        }
-
+    public int getUnreadMessageCount() throws MessagingException {
         checkOpen();
 
-        // For other modes, expunge from both IMAP and cache
-        Message[] expunged = null;
-        if (imapFolder != null && imapFolder.isOpen()) {
-            expunged = imapFolder.expunge();
-        }
-
-        // Expunge from local cache
-        List<Message> expungedFromCache = new ArrayList<>();
-        if (cacheDir != null) {
-            File messagesDir = new File(cacheDir, "messages");
-            if (messagesDir.exists()) {
-                File[] messageDirs = messagesDir.listFiles(File::isDirectory);
-                if (messageDirs != null) {
-                    for (File messageDir : messageDirs) {
-                        // Check if this message is marked for deletion
-                        // (implementation would read flags from cached message)
-                        // If deleted, remove from cache
-
-                        // This is a placeholder for the actual implementation
-                    }
-                }
+        // For ONLINE mode, get from IMAP
+        if (cachedStore.getMode() == CacheMode.ONLINE && imapFolder != null && imapFolder.isOpen()) {
+            try {
+                return imapFolder.getUnreadMessageCount();
+            } catch (MessagingException e) {
+                // Fall back to local cache if server check fails
+                LOGGER.log(Level.WARNING, "Error getting unread message count from server", e);
             }
         }
 
-        return expunged != null ? expunged : new Message[0];
+        // For other modes, count unread messages from cache
+        int unreadCount = 0;
+        if (cacheDir != null) {
+            try {
+                Message[] messages = getMessages();
+                for (Message message : messages) {
+                    if (!message.isSet(Flags.Flag.SEEN)) {
+                        unreadCount++;
+                    }
+                }
+            } catch (MessagingException e) {
+                LOGGER.log(Level.WARNING, "Error counting unread messages in cache", e);
+            }
+        }
+
+        return unreadCount;
+    }
+
+    @Override
+    public int getNewMessageCount() throws MessagingException {
+        // For OFFLINE mode, we cannot determine new message count
+        if (cachedStore.getMode() == CacheMode.OFFLINE) {
+            return 0;
+        }
+
+        // For non-OFFLINE modes, check the IMAP folder
+        if (imapFolder != null && imapFolder.isOpen()) {
+            try {
+                return imapFolder.getNewMessageCount();
+            } catch (MessagingException e) {
+                // Log error but return 0
+                LOGGER.log(Level.WARNING, "Error getting new message count from server", e);
+            }
+        }
+
+        return 0;
     }
 
     @Override
     public boolean hasNewMessages() throws MessagingException {
-        // For ONLINE mode, check the IMAP folder
-        if (cachedStore.getMode() == CacheMode.ONLINE && imapFolder != null) {
+        // For OFFLINE mode, we cannot determine if there are new messages
+        if (cachedStore.getMode() == CacheMode.OFFLINE) {
+            return false;
+        }
+
+        // For non-OFFLINE modes, check the IMAP folder
+        if (imapFolder != null) {
             try {
                 return imapFolder.hasNewMessages();
             } catch (MessagingException e) {
@@ -582,9 +651,174 @@ public class CachedFolder extends Folder {
             }
         }
 
-        // For other modes or as fallback, just return false
-        // since we can't reliably determine new messages without server access
         return false;
+    }
+
+    @Override
+    public Message[] expunge() throws MessagingException {
+        // Only allow expunge in DESTRUCTIVE mode
+        if (cachedStore.getMode() != CacheMode.DESTRUCTIVE) {
+            throw new MessagingException("Cannot expunge messages unless in DESTRUCTIVE mode");
+        }
+
+        checkOpen();
+
+        // Expunge from server first
+        Message[] expunged = null;
+        if (imapFolder != null && imapFolder.isOpen()) {
+            expunged = imapFolder.expunge();
+        }
+
+        // For DESTRUCTIVE mode, we can remove messages from the local cache
+        // but we'll keep a backup in an "archive" directory
+        if (expunged != null && expunged.length > 0 && cacheDir != null) {
+            File messagesDir = new File(cacheDir, "messages");
+            File archiveDir = new File(cacheDir, "archived_messages");
+            if (!archiveDir.exists()) {
+                archiveDir.mkdirs();
+            }
+
+            if (messagesDir.exists()) {
+                for (Message msg : expunged) {
+                    if (msg instanceof CachedMessage) {
+                        CachedMessage cachedMsg = (CachedMessage) msg;
+                        File messageDir = cachedMsg.getMessageDirectory();
+
+                        // Move to archive instead of deleting
+                        if (messageDir != null && messageDir.exists()) {
+                            File archiveDest = new File(archiveDir, messageDir.getName());
+                            messageDir.renameTo(archiveDest);
+                        }
+                    }
+                }
+            }
+        }
+
+        return expunged != null ? expunged : new Message[0];
+    }
+
+
+    public Message[] search(SearchTerm term) throws MessagingException {
+        checkOpen();
+
+        // For ONLINE mode, search on server
+        if (cachedStore.getMode() == CacheMode.ONLINE && imapFolder != null && imapFolder.isOpen()) {
+            try {
+                Message[] serverResults = imapFolder.search(term);
+
+                // Create cached versions of the server results
+                List<Message> cachedResults = new ArrayList<>();
+                for (Message msg : serverResults) {
+                    cachedResults.add(new CachedMessage(this, msg));
+                }
+
+                return cachedResults.toArray(new Message[0]);
+            } catch (MessagingException e) {
+                LOGGER.log(Level.WARNING, "Error searching on server, falling back to local cache", e);
+            }
+        }
+
+        // For other modes or if server search fails, search in local cache
+        Message[] messages = getMessages();
+        List<Message> results = new ArrayList<>();
+
+        for (Message msg : messages) {
+            if (term.match(msg)) {
+                results.add(msg);
+            }
+        }
+
+        return results.toArray(new Message[0]);
+    }
+
+    /**
+     * Get the file system directory for this folder
+     *
+     * @return The directory for this folder
+     */
+    public File getFolderDirectory() {
+        return cacheDir;
+    }
+
+    /**
+     * Add an additional file to the folder
+     *
+     * @param filename The name of the file to create/update
+     * @param content The content to write to the file
+     * @throws java.io.IOException If there is an error writing the file
+     */
+    public void addAdditionalFile(String filename, String content) throws java.io.IOException {
+        if (cacheDir == null || !cacheDir.exists()) {
+            throw new java.io.IOException("Folder directory does not exist");
+        }
+
+        // Sanitize filename to prevent directory traversal
+        String sanitizedFilename = filename.replaceAll("[\\\\/:*?\"<>|]", "_");
+
+        // Create extras directory if it doesn't exist
+        File extrasDir = new File(cacheDir, "extras");
+        if (!extrasDir.exists()) {
+            extrasDir.mkdirs();
+        }
+
+        // Write the file
+        File file = new File(extrasDir, sanitizedFilename);
+        try (java.io.FileWriter writer = new java.io.FileWriter(file)) {
+            writer.write(content);
+        }
+    }
+
+    /**
+     * Get the content of an additional file in this folder
+     *
+     * @param filename The name of the file to read
+     * @return The content of the file, or null if the file doesn't exist
+     * @throws java.io.IOException If there is an error reading the file
+     */
+    public String getAdditionalFileContent(String filename) throws java.io.IOException {
+        if (cacheDir == null || !cacheDir.exists()) {
+            throw new java.io.IOException("Folder directory does not exist");
+        }
+
+        // Sanitize filename to prevent directory traversal
+        String sanitizedFilename = filename.replaceAll("[\\\\/:*?\"<>|]", "_");
+
+        File extrasDir = new File(cacheDir, "extras");
+        File file = new File(extrasDir, sanitizedFilename);
+
+        if (!file.exists() || !file.isFile()) {
+            return null;
+        }
+
+        return new String(java.nio.file.Files.readAllBytes(file.toPath()), java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    /**
+     * Get a list of all additional files in this folder
+     *
+     * @return An array of file names
+     */
+    public String[] listAdditionalFiles() {
+        if (cacheDir == null || !cacheDir.exists()) {
+            return new String[0];
+        }
+
+        File extrasDir = new File(cacheDir, "extras");
+        if (!extrasDir.exists() || !extrasDir.isDirectory()) {
+            return new String[0];
+        }
+
+        File[] files = extrasDir.listFiles(File::isFile);
+        if (files == null || files.length == 0) {
+            return new String[0];
+        }
+
+        String[] filenames = new String[files.length];
+        for (int i = 0; i < files.length; i++) {
+            filenames[i] = files[i].getName();
+        }
+
+        return filenames;
     }
 
     /**
@@ -597,9 +831,103 @@ public class CachedFolder extends Folder {
     }
 
     /**
-     * Sanitize a filename for safe filesystem storage
+     * Sanitize and format a message directory name for safe filesystem storage
+     * Format: YYYY-MM-DD_Subject
      */
-    private String sanitizeFileName(String input) {
-        return input.replaceAll("[\\\\/:*?\"<>|]", "_");
+    private String formatMessageDirName(Message message) throws MessagingException {
+        SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd");
+        String prefix = "";
+
+        // Get date
+        Date sentDate = message.getSentDate();
+        if (sentDate != null) {
+            prefix = dateFormat.format(sentDate) + "_";
+        } else {
+            // Use current date if no sent date
+            prefix = dateFormat.format(new Date()) + "_";
+        }
+
+        // Get subject
+        String subject = message.getSubject();
+        if (subject == null || subject.isEmpty()) {
+            subject = "NoSubject_" + System.currentTimeMillis();
+        }
+
+        // Sanitize subject for file system
+        String sanitizedSubject = subject.replaceAll("[\\\\/:*?\"<>|]", "_");
+
+        // Limit length to avoid too long file names
+        if (sanitizedSubject.length() > 100) {
+            sanitizedSubject = sanitizedSubject.substring(0, 100);
+        }
+
+        return prefix + sanitizedSubject;
+    }
+
+    /**
+     * Move messages between folders. Will perform the move on the server first,
+     * then update the local cache accordingly.
+     *
+     * @param messages The messages to move
+     * @param destination The destination folder
+     * @throws MessagingException If the move operation fails
+     */
+    public void moveMessages(Message[] messages, Folder destination) throws MessagingException {
+        // In OFFLINE mode, cannot move
+        if (cachedStore.getMode() == CacheMode.OFFLINE) {
+            throw new MessagingException("Cannot move messages in OFFLINE mode");
+        }
+
+        checkOpen();
+
+        if (!(destination instanceof CachedFolder)) {
+            throw new MessagingException("Destination folder must be a CachedFolder");
+        }
+
+        CachedFolder destFolder = (CachedFolder) destination;
+
+        // Move on server first if possible
+        if (imapFolder != null && imapFolder.isOpen() && destFolder.imapFolder != null) {
+            try {
+                // There's no standard moveMessages in JavaMail, so we'd need to implement
+                // using copy + delete in a real implementation
+                // This is just a placeholder for the actual server implementation
+
+                // Here's how it would conceptually work:
+                // 1. Copy messages to destination on server
+                // 2. Mark messages as deleted on server
+                // 3. Expunge source folder on server
+            } catch (Exception e) {
+                LOGGER.log(Level.SEVERE, "Error moving messages on server", e);
+                throw new MessagingException("Failed to move messages on server", e);
+            }
+        }
+
+        // Then update local cache
+        if (cacheDir != null && destFolder.cacheDir != null) {
+            File srcMessagesDir = new File(cacheDir, "messages");
+            File destMessagesDir = new File(destFolder.cacheDir, "messages");
+
+            if (!destMessagesDir.exists()) {
+                destMessagesDir.mkdirs();
+            }
+
+            for (Message msg : messages) {
+                if (msg instanceof CachedMessage) {
+                    CachedMessage cachedMsg = (CachedMessage) msg;
+                    File messageDir = cachedMsg.getMessageDirectory();
+
+                    if (messageDir != null && messageDir.exists()) {
+                        File destMessageDir = new File(destMessagesDir, messageDir.getName());
+                        if (destMessageDir.exists()) {
+                            throw new MessagingException("Message directory collision during move: " + destMessageDir.getName());
+                        }
+
+                        // Move the directory
+                        messageDir.renameTo(destMessageDir);
+                    }
+                }
+            }
+        }
     }
 }

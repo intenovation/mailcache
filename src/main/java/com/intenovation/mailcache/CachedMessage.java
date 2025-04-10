@@ -41,13 +41,10 @@ public class CachedMessage extends MimeMessage {
             messagesDir.mkdirs();
         }
 
-        String messageId = getMessageId();
-        if (messageId == null) {
-            messageId = "msg_" + System.currentTimeMillis() + "_" +
-                    Math.abs((""+imapMessage.getSubject()).hashCode());
-        }
+        // Generate formatted directory name using YYYY-MM-DD_Subject format
+        String dirName = formatMessageDirName(imapMessage);
 
-        this.messageDir = new File(messagesDir, sanitizeFileName(messageId));
+        this.messageDir = new File(messagesDir, dirName);
         if (!this.messageDir.exists()) {
             this.messageDir.mkdirs();
 
@@ -69,6 +66,50 @@ public class CachedMessage extends MimeMessage {
 
         // Load from cache
         loadFromCache();
+    }
+
+    /**
+     * Get the local directory where this message is stored
+     * This allows adding extra files to the message directory
+     *
+     * @return The File representing the message directory
+     */
+    public File getMessageDirectory() {
+        return messageDir;
+    }
+
+    /**
+     * Formats a message directory name based on date and subject
+     * Format: YYYY-MM-DD_Subject
+     */
+    private String formatMessageDirName(Message message) throws MessagingException {
+        java.text.SimpleDateFormat dateFormat = new java.text.SimpleDateFormat("yyyy-MM-dd");
+        String prefix = "";
+
+        // Get date
+        Date sentDate = message.getSentDate();
+        if (sentDate != null) {
+            prefix = dateFormat.format(sentDate) + "_";
+        } else {
+            // Use current date if no sent date
+            prefix = dateFormat.format(new Date()) + "_";
+        }
+
+        // Get subject
+        String subject = message.getSubject();
+        if (subject == null || subject.isEmpty()) {
+            subject = "NoSubject_" + System.currentTimeMillis();
+        }
+
+        // Sanitize subject for file system
+        String sanitizedSubject = subject.replaceAll("[\\\\/:*?\"<>|]", "_");
+
+        // Limit length to avoid too long file names
+        if (sanitizedSubject.length() > 100) {
+            sanitizedSubject = sanitizedSubject.substring(0, 100);
+        }
+
+        return prefix + sanitizedSubject;
     }
 
     private String getMessageId() {
@@ -229,7 +270,41 @@ public class CachedMessage extends MimeMessage {
                     }
                 } else if (msgContent instanceof Multipart) {
                     // Process multipart content
-                    // This would be implemented to extract text and save attachments
+                    Multipart multipart = (Multipart) msgContent;
+                    StringBuilder textContent = new StringBuilder();
+
+                    // Extract text content and save attachments
+                    for (int i = 0; i < multipart.getCount(); i++) {
+                        BodyPart part = multipart.getBodyPart(i);
+
+                        String disposition = part.getDisposition();
+
+                        // Check if this part is an attachment
+                        if (disposition != null &&
+                                (disposition.equalsIgnoreCase(Part.ATTACHMENT) ||
+                                        disposition.equalsIgnoreCase(Part.INLINE))) {
+
+                            // Only save attachments if configured to do so
+                            CachedStore store = (CachedStore) folder.getStore();
+                            //if (store.getConfig().isCacheAttachments()) {
+                                saveAttachment(part);
+                            //}
+                        } else {
+                            // This part is likely the message body
+                            Object partContent = part.getContent();
+                            if (partContent instanceof String) {
+                                textContent.append((String) partContent);
+                                textContent.append("\n");
+                            }
+                        }
+                    }
+
+                    // Save the text content
+                    content = textContent.toString();
+                    try (FileWriter writer = new FileWriter(
+                            new File(messageDir, "content.txt"))) {
+                        writer.write(content);
+                    }
                 }
             } catch (IOException e) {
                 LOGGER.log(Level.WARNING, "Error saving message content", e);
@@ -270,6 +345,38 @@ public class CachedMessage extends MimeMessage {
             contentLoaded = true;
         } catch (Exception e) {
             throw new MessagingException("Error saving message to cache", e);
+        }
+    }
+
+    /**
+     * Save an attachment from a message part
+     */
+    private void saveAttachment(BodyPart part) throws MessagingException, IOException {
+        String fileName = part.getFileName();
+        if (fileName == null) {
+            // Generate a name if none is provided
+            fileName = "attachment_" + System.currentTimeMillis();
+        }
+
+        // Sanitize the filename
+        fileName = sanitizeFileName(fileName);
+
+        // Create attachments directory if it doesn't exist
+        File attachmentsDir = new File(messageDir, "attachments");
+        if (!attachmentsDir.exists()) {
+            attachmentsDir.mkdirs();
+        }
+
+        // Save the attachment
+        File attachmentFile = new File(attachmentsDir, fileName);
+        try (InputStream is = part.getInputStream();
+             FileOutputStream fos = new FileOutputStream(attachmentFile)) {
+
+            byte[] buffer = new byte[8192];
+            int bytesRead;
+            while ((bytesRead = is.read(buffer)) != -1) {
+                fos.write(buffer, 0, bytesRead);
+            }
         }
     }
 
@@ -371,20 +478,30 @@ public class CachedMessage extends MimeMessage {
             throw new MessagingException("Cannot modify messages in OFFLINE mode");
         }
 
-        // For other modes, update flags
-        if (imapMessage != null) {
-            imapMessage.setFlags(flag, set);
+        // Prevent setting DELETED flag unless in DESTRUCTIVE mode
+        if (set && flag.contains(Flags.Flag.DELETED) && store.getMode() != CacheMode.DESTRUCTIVE) {
+            throw new MessagingException("Cannot delete messages unless in DESTRUCTIVE mode");
         }
 
-        // Update flags in memory
+        // For other modes, update flags on server first
+        if (imapMessage != null) {
+            try {
+                imapMessage.setFlags(flag, set);
+            } catch (MessagingException e) {
+                LOGGER.log(Level.WARNING, "Error updating flags on server: " + e.getMessage(), e);
+                throw e; // Don't continue if server operation failed
+            }
+        }
+
+        // Update flags in memory only after server update was successful
         if (set) {
             flags.add(flag);
         } else {
             flags.remove(flag);
         }
 
-        if (store.getMode() == CacheMode.ACCELERATED) {
-            // Also update in cache
+        // Always update in cache for all modes except OFFLINE
+        if (store.getMode() != CacheMode.OFFLINE) {
             try {
                 // Save flags
                 try (FileWriter writer = new FileWriter(
@@ -518,5 +635,166 @@ public class CachedMessage extends MimeMessage {
 
         // Otherwise, need to build a MimeMessage from properties and content
         super.writeTo(os);
+    }
+
+    /**
+     * Add an additional file to the message directory
+     *
+     * @param filename The name of the file to create/update
+     * @param content The content to write to the file
+     * @throws IOException If there is an error writing the file
+     */
+    public void addAdditionalFile(String filename, String content) throws IOException {
+        if (messageDir == null || !messageDir.exists()) {
+            throw new IOException("Message directory does not exist");
+        }
+
+        // Sanitize filename to prevent directory traversal
+        String sanitizedFilename = filename.replaceAll("[\\\\/:*?\"<>|]", "_");
+
+        // Create extras directory if it doesn't exist
+        File extrasDir = new File(messageDir, "extras");
+        if (!extrasDir.exists()) {
+            extrasDir.mkdirs();
+        }
+
+        // Write the file
+        File file = new File(extrasDir, sanitizedFilename);
+        try (FileWriter writer = new FileWriter(file)) {
+            writer.write(content);
+        }
+    }
+
+    /**
+     * Get the content of an additional file
+     *
+     * @param filename The name of the file to read
+     * @return The content of the file, or null if the file doesn't exist
+     * @throws IOException If there is an error reading the file
+     */
+    public String getAdditionalFileContent(String filename) throws IOException {
+        if (messageDir == null || !messageDir.exists()) {
+            throw new IOException("Message directory does not exist");
+        }
+
+        // Sanitize filename to prevent directory traversal
+        String sanitizedFilename = filename.replaceAll("[\\\\/:*?\"<>|]", "_");
+
+        File extrasDir = new File(messageDir, "extras");
+        File file = new File(extrasDir, sanitizedFilename);
+
+        if (!file.exists() || !file.isFile()) {
+            return null;
+        }
+
+        return new String(java.nio.file.Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8);
+    }
+
+    /**
+     * Get a list of all additional files
+     *
+     * @return An array of file names
+     */
+    public String[] listAdditionalFiles() {
+        if (messageDir == null || !messageDir.exists()) {
+            return new String[0];
+        }
+
+        File extrasDir = new File(messageDir, "extras");
+        if (!extrasDir.exists() || !extrasDir.isDirectory()) {
+            return new String[0];
+        }
+
+        File[] files = extrasDir.listFiles(File::isFile);
+        if (files == null || files.length == 0) {
+            return new String[0];
+        }
+
+        String[] filenames = new String[files.length];
+        for (int i = 0; i < files.length; i++) {
+            filenames[i] = files[i].getName();
+        }
+
+        return filenames;
+    }
+
+    /**
+     * Get a list of all attachments
+     *
+     * @return An array of attachment file names
+     */
+    public String[] listAttachments() {
+        if (messageDir == null || !messageDir.exists()) {
+            return new String[0];
+        }
+
+        File attachmentsDir = new File(messageDir, "attachments");
+        if (!attachmentsDir.exists() || !attachmentsDir.isDirectory()) {
+            return new String[0];
+        }
+
+        File[] files = attachmentsDir.listFiles(File::isFile);
+        if (files == null || files.length == 0) {
+            return new String[0];
+        }
+
+        String[] filenames = new String[files.length];
+        for (int i = 0; i < files.length; i++) {
+            filenames[i] = files[i].getName();
+        }
+
+        return filenames;
+    }
+
+    /**
+     * Get an attachment as an input stream
+     *
+     * @param filename The name of the attachment
+     * @return An InputStream to read the attachment, or null if it doesn't exist
+     * @throws IOException If there is an error opening the attachment
+     */
+    public InputStream getAttachmentStream(String filename) throws IOException {
+        if (messageDir == null || !messageDir.exists()) {
+            return null;
+        }
+
+        // Sanitize filename to prevent directory traversal
+        String sanitizedFilename = filename.replaceAll("[\\\\/:*?\"<>|]", "_");
+
+        File attachmentsDir = new File(messageDir, "attachments");
+        File file = new File(attachmentsDir, sanitizedFilename);
+
+        if (!file.exists() || !file.isFile()) {
+            return null;
+        }
+
+        return new FileInputStream(file);
+    }
+
+    /**
+     * Save an attachment to an external file
+     *
+     * @param attachmentName The name of the attachment in the message
+     * @param destinationFile The file to save it to
+     * @return true if successful, false otherwise
+     * @throws IOException If there is an error reading or writing the attachment
+     */
+    public boolean saveAttachmentToFile(String attachmentName, File destinationFile) throws IOException {
+        InputStream attachmentStream = getAttachmentStream(attachmentName);
+        if (attachmentStream == null) {
+            return false;
+        }
+
+        try (FileOutputStream fos = new FileOutputStream(destinationFile)) {
+            byte[] buffer = new byte[8192];
+            int bytesRead;
+            while ((bytesRead = attachmentStream.read(buffer)) != -1) {
+                fos.write(buffer, 0, bytesRead);
+            }
+        } finally {
+            attachmentStream.close();
+        }
+
+        return true;
     }
 }

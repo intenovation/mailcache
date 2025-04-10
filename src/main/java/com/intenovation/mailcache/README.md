@@ -1,23 +1,33 @@
 # JavaMail Cache Implementation
 
-A robust solution for efficient email access with flexible online/offline capabilities.
+A robust solution for efficient email access with flexible online/offline capabilities and permanent message archiving.
 
 ## Overview
 
-`com.intenovation.mailcache` provides a high-performance cache layer for JavaMail, allowing applications to work with emails efficiently in various connectivity scenarios. It implements the standard JavaMail API so existing applications can easily adopt it for improved performance and offline capabilities.
+`com.intenovation.mailcache` provides a high-performance cache layer for JavaMail, allowing applications to work with emails efficiently in various connectivity scenarios. It implements the standard JavaMail API so existing applications can easily adopt it for improved performance and offline capabilities. The implementation is designed to preserve all messages permanently in the local cache for future reference, such as invoices and important communications.
+
+## Key Philosophy
+
+- **Data Preservation**: Messages are never truly deleted from the local cache, ensuring a complete historical record
+- **Human-Readable Storage**: Message folders use year-month-day and subject format for easy browsing
+- **Server-First Operations**: All changes happen on the server first, then locally, to prevent data loss
+- **Safe Defaults**: Delete operations are restricted to DESTRUCTIVE mode only
+- **Transparent Caching**: Access to local message storage for adding supplementary files
 
 ## Key Features
 
-- **Three Operation Modes**:
-    - **Online**: Searches happen on the server while reading uses the local cache for speed
-    - **Offline**: All operations use the local cache with no server connectivity required
-    - **Accelerated**: Reading and searching use local cache, writing happens both locally and on the server
-- **Transparent Caching**: Automatically caches emails as they are accessed
+- **Four Operation Modes**:
+  - **Online**: Searches happen on the server while reading uses the local cache for speed
+  - **Offline**: All operations use the local cache with no server connectivity required
+  - **Accelerated**: Reading and searching use local cache, writing happens both locally and on the server
+  - **Destructive**: The only mode that allows deleting messages and folders (use with caution)
+- **Permanent Archiving**: Messages deleted from the server are archived locally and never truly deleted
 - **Standard API**: Fully compatible with the JavaMail API
 - **Seamless Transitions**: Switch between modes without restarting your application
 - **Efficient Storage**: Optimized on-disk storage format for emails and attachments
 - **Conflict Resolution**: Smart handling of conflicts between local and server versions
 - **Bandwidth Optimization**: Only downloads required data, with support for partial message fetching
+- **Extended Functionality**: Access to add supplementary files alongside cached messages
 
 ## Getting Started
 
@@ -112,6 +122,38 @@ inbox.close(true);
 store.close();
 ```
 
+### Adding Supplementary Files to Messages
+
+```java
+// Get a message
+Folder inbox = store.getFolder("INBOX");
+inbox.open(Folder.READ_WRITE);
+Message[] messages = inbox.getMessages();
+
+if (messages.length > 0 && messages[0] instanceof CachedMessage) {
+    CachedMessage message = (CachedMessage) messages[0];
+    
+    // Add a supplementary file
+    try {
+        message.addAdditionalFile("notes.txt", "Important notes about this invoice");
+        
+        // List all supplementary files
+        String[] files = message.listAdditionalFiles();
+        for (String file : files) {
+            System.out.println("Found file: " + file);
+        }
+        
+        // Get content of a file
+        String content = message.getAdditionalFileContent("notes.txt");
+        System.out.println("Content: " + content);
+    } catch (IOException e) {
+        e.printStackTrace();
+    }
+}
+
+inbox.close(false);
+```
+
 ## Operation Modes Explained
 
 ### Online Mode
@@ -120,6 +162,7 @@ In **Online** mode:
 - **Reading**: Messages are read from the local cache if available, otherwise fetched from server and cached
 - **Searching**: Search operations are performed on the server
 - **Writing**: Changes are immediately sent to the server and updated in the cache
+- **Deletion**: Not allowed unless in DESTRUCTIVE mode
 
 Use this mode when you need real-time search results but still want fast message access.
 
@@ -129,6 +172,7 @@ In **Offline** mode:
 - **Reading**: Only locally cached messages are available
 - **Searching**: Search operations only work on cached messages
 - **Writing**: Not allowed - all operations are read-only
+- **Deletion**: Not allowed
 
 Use this mode when no network connectivity is available or to ensure deterministic performance.
 
@@ -137,66 +181,67 @@ Use this mode when no network connectivity is available or to ensure determinist
 In **Accelerated** mode:
 - **Reading**: Messages are read from the local cache if available, otherwise fetched and cached
 - **Searching**: Search operations are performed on the local cache only
-- **Writing**: Changes are sent to the server and updated in the cache
+- **Writing**: Changes are sent to the server first, then updated in the cache
+- **Deletion**: Not allowed unless in DESTRUCTIVE mode
 
 This is the default mode, providing the best balance of performance and functionality.
 
+### Destructive Mode
+
+In **Destructive** mode:
+- All operations from Accelerated mode, plus:
+- **Deletion**: Allows deleting messages and folders from the server
+- **Archiving**: Messages deleted from server are archived locally, never truly deleted
+- **Restoration**: Archived messages can be restored from the local archive
+
+This mode should be used with caution, and typically only for administrative operations.
+
 ## Advanced Features
 
-### Selective Caching
+### Message Moving and Archiving
 
 ```java
-// Create a configuration with selective caching
-CacheConfiguration config = new CacheConfiguration()
-    .setCacheAttachments(true)
-    .setMaxMessageSize(5 * 1024 * 1024) // 5MB max
-    .setRetentionDays(30); // Keep cache for 30 days
+// Get a cached folder
+CachedFolder inbox = (CachedFolder) store.getFolder("INBOX");
+CachedFolder archive = (CachedFolder) store.getFolder("Archive");
 
-// Create a session with this configuration
-Session session = MailCache.createSessionWithConfig(
-    cacheDir,
-    CacheMode.ACCELERATED,
-    config,
-    "imap.example.com",
-    993,
-    "username",
-    "password",
-    true
-);
+inbox.open(Folder.READ_WRITE);
+archive.open(Folder.READ_WRITE);
+
+// Get messages to move
+Message[] messages = inbox.getMessages(1, 5);
+
+// Move messages between folders
+inbox.moveMessages(messages, archive);
+
+inbox.close(false);
+archive.close(false);
 ```
 
-### Synchronization Control
+### Working with Archived Messages
 
 ```java
 // Get the cache manager
 CacheManager manager = CacheManager.getInstance(store);
 
-// Force synchronization of specific folders
-manager.synchronize("INBOX");
-manager.synchronize("Sent Items");
+// List archived messages
+String[] archivedMessages = manager.listArchivedMessages("INBOX");
+for (String message : archivedMessages) {
+    System.out.println("Archived message: " + message);
+}
 
-// Get sync status
-SyncStatus status = manager.getSyncStatus("INBOX");
-System.out.println("Last sync: " + status.getLastSyncTime());
-System.out.println("Messages: " + status.getSyncedMessageCount());
+// Restore selected archived messages
+int restoredCount = manager.restoreArchivedMessages("INBOX", 
+    new String[]{"2024-04-09_Important_Invoice"});
+System.out.println("Restored " + restoredCount + " messages");
 ```
 
-### Cache Management
+### Cache Statistics
 
 ```java
-// Clear specific folders from cache
-CacheManager.getInstance(store).clearCache("Trash");
-
-// Purge old messages
-CacheManager.getInstance(store).purgeOlderThan(
-    "INBOX", 
-    30, // days
-    false // don't delete flagged messages
-);
-
 // Get cache statistics
 CacheStats stats = CacheManager.getInstance(store).getStatistics();
-System.out.println("Cache size: " + stats.getTotalSize() + " bytes");
+System.out.println("Cache size: " + stats.getFormattedTotalSize());
 System.out.println("Message count: " + stats.getMessageCount());
 ```
 
@@ -206,26 +251,31 @@ The cache is organized on disk as follows:
 
 ```
 /CacheDirectory/
-├── .metadata/          # Cache metadata and indexes
+├── .metadata/                # Cache metadata and indexes
 ├── INBOX/
-│   ├── messages/       # Cached messages
-│   │   ├── msg1/
+│   ├── messages/             # Cached messages
+│   │   ├── 2024-04-09_Invoice_April/
+│   │   │   ├── message.mbox
 │   │   │   ├── headers.properties
 │   │   │   ├── content.txt
-│   │   │   ├── content.html
-│   │   │   └── attachments/
-│   │   └── msg2/
+│   │   │   ├── flags.txt
+│   │   │   └── extras/       # Supplementary files
+│   │   │       └── notes.txt
+│   │   └── 2024-04-05_Meeting_Minutes/
 │   │       └── ...
+│   └── archived_messages/    # Messages archived from INBOX
+│       └── 2024-01-10_Old_Report/
+│           └── ...
 ├── Sent/
 │   └── ...
-└── .sync/              # Synchronization status information
+└── .sync/                    # Synchronization status information
 ```
 
 ## Performance Considerations
 
 - **Initial Synchronization**: The first time you access a folder, synchronization may take time depending on the number of messages
 - **Memory Usage**: By default, message bodies are loaded on demand to minimize memory usage
-- **Disk Space**: Message content and attachments are stored on disk, so ensure adequate space
+- **Disk Space**: Since message content and attachments are stored permanently on disk, ensure adequate space
 - **Search Performance**: In OFFLINE and ACCELERATED modes, search is limited by the local indexing performance
 
 ## Requirements

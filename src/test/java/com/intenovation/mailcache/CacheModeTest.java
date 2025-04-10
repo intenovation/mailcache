@@ -11,7 +11,7 @@ public class CacheModeTest {
     @Test
     public void testEnumValues() {
         // Test that the enum has the expected values
-        assertEquals(3, CacheMode.values().length);
+        assertEquals(4, CacheMode.values().length);
         assertNotNull(CacheMode.OFFLINE);
         assertNotNull(CacheMode.ACCELERATED);
         assertNotNull(CacheMode.ONLINE);
