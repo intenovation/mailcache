@@ -44,7 +44,7 @@ public class CachedMessage extends MimeMessage {
         String messageId = getMessageId();
         if (messageId == null) {
             messageId = "msg_" + System.currentTimeMillis() + "_" +
-                    Math.abs(imapMessage.getSubject().hashCode());
+                    Math.abs((""+imapMessage.getSubject()).hashCode());
         }
 
         this.messageDir = new File(messagesDir, sanitizeFileName(messageId));

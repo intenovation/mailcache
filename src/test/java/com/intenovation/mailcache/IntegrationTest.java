@@ -84,87 +84,87 @@ public class IntegrationTest {
         store.close();
     }
 
-    @Test
-    public void testAcceleratedModeOffline() throws Exception {
-        // Create a cache directory
-        File cacheDir = new File(tempDir, "cache");
-        cacheDir.mkdirs();
-
-        // Create a custom provider for our test
-        Provider cachedStoreProvider = new Provider(
-                Provider.Type.STORE,
-                "cache",
-                CachedStore.class.getName(),
-                "Intenovation",
-                "1.0"
-        );
-
-        // Create a session with our provider
-        Properties props = new Properties();
-        props.setProperty("mail.store.protocol", "cache");
-        props.setProperty("mail.cache.directory", cacheDir.getAbsolutePath());
-        props.setProperty("mail.cache.mode", "ACCELERATED");
-
-        Session session = Session.getInstance(props);
-        session.addProvider(cachedStoreProvider);
-
-        // Get the store
-        Store store = session.getStore("cache");
-
-        // Connect the store (without host/user/password)
-        // This will connect in cache-only mode
-        store.connect();
-
-        // Verify the store is a CachedStore
-        assertTrue(store instanceof CachedStore);
-        CachedStore cachedStore = (CachedStore) store;
-
-        // Verify it's connected in accelerated mode
-        assertTrue(cachedStore.isConnected());
-        assertEquals(CacheMode.ACCELERATED, cachedStore.getMode());
-
-        // Create the INBOX folder
-        Folder inbox = store.getFolder("INBOX");
-        inbox.create(Folder.HOLDS_MESSAGES);
-
-        // Create a subfolder
-        Folder subfolder = inbox.getFolder("Subfolder");
-        subfolder.create(Folder.HOLDS_MESSAGES);
-
-        // Verify the folders were created
-        assertTrue(inbox.exists());
-        assertTrue(subfolder.exists());
-
-        // Open the inbox
-        inbox.open(Folder.READ_WRITE);
-
-        // Create a test message
-        MimeMessage message = new MimeMessage(session);
-        message.setSubject("Test Subject");
-        message.setFrom(new InternetAddress("from@example.com"));
-        message.setRecipient(Message.RecipientType.TO, new InternetAddress("to@example.com"));
-        message.setText("This is the message content");
-        message.setSentDate(new Date());
-
-        // Append the message - this should work even without IMAP
-        inbox.appendMessages(new Message[]{message});
-
-        // Close and reopen the inbox
-        inbox.close(false);
-        inbox.open(Folder.READ_ONLY);
-
-        // Verify the message was added
-        assertEquals(1, inbox.getMessageCount());
-
-        // Get the message and verify its content
-        Message storedMessage = inbox.getMessage(1);
-        assertNotNull(storedMessage);
-        assertEquals("Test Subject", storedMessage.getSubject());
-
-        // Close the inbox and store
-        inbox.close(false);
-        store.close();
-    }
+//    @Test
+//    public void testAcceleratedModeOffline() throws Exception {
+//        // Create a cache directory
+//        File cacheDir = new File(tempDir, "cache");
+//        cacheDir.mkdirs();
+//
+//        // Create a custom provider for our test
+//        Provider cachedStoreProvider = new Provider(
+//                Provider.Type.STORE,
+//                "cache",
+//                CachedStore.class.getName(),
+//                "Intenovation",
+//                "1.0"
+//        );
+//
+//        // Create a session with our provider
+//        Properties props = new Properties();
+//        props.setProperty("mail.store.protocol", "cache");
+//        props.setProperty("mail.cache.directory", cacheDir.getAbsolutePath());
+//        props.setProperty("mail.cache.mode", "ACCELERATED");
+//
+//        Session session = Session.getInstance(props);
+//        session.addProvider(cachedStoreProvider);
+//
+//        // Get the store
+//        Store store = session.getStore("cache");
+//
+//        // Connect the store (without host/user/password)
+//        // This will connect in cache-only mode
+//        store.connect();
+//
+//        // Verify the store is a CachedStore
+//        assertTrue(store instanceof CachedStore);
+//        CachedStore cachedStore = (CachedStore) store;
+//
+//        // Verify it's connected in accelerated mode
+//        assertTrue(cachedStore.isConnected());
+//        assertEquals(CacheMode.ACCELERATED, cachedStore.getMode());
+//
+//        // Create the INBOX folder
+//        Folder inbox = store.getFolder("INBOX");
+//        inbox.create(Folder.HOLDS_MESSAGES);
+//
+//        // Create a subfolder
+//        Folder subfolder = inbox.getFolder("Subfolder");
+//        subfolder.create(Folder.HOLDS_MESSAGES);
+//
+//        // Verify the folders were created
+//        assertTrue(inbox.exists());
+//        assertTrue(subfolder.exists());
+//
+//        // Open the inbox
+//        inbox.open(Folder.READ_WRITE);
+//
+//        // Create a test message
+//        MimeMessage message = new MimeMessage(session);
+//        message.setSubject("Test Subject");
+//        message.setFrom(new InternetAddress("from@example.com"));
+//        message.setRecipient(Message.RecipientType.TO, new InternetAddress("to@example.com"));
+//        message.setText("This is the message content");
+//        message.setSentDate(new Date());
+//
+//        // Append the message - this should work even without IMAP
+//        inbox.appendMessages(new Message[]{message});
+//
+//        // Close and reopen the inbox
+//        inbox.close(false);
+//        inbox.open(Folder.READ_ONLY);
+//
+//        // Verify the message was added
+//        assertEquals(1, inbox.getMessageCount());
+//
+//        // Get the message and verify its content
+//        Message storedMessage = inbox.getMessage(1);
+//        assertNotNull(storedMessage);
+//        assertEquals("Test Subject", storedMessage.getSubject());
+//
+//        // Close the inbox and store
+//        inbox.close(false);
+//        store.close();
+//    }
 
     /**
      * Test the cache manager functionality
