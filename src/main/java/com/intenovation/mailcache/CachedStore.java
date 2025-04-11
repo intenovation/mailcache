@@ -17,6 +17,7 @@ public class CachedStore extends Store {
     private File cacheDirectory;
     private CacheMode mode;
     private boolean connected = false;
+    private CacheConfiguration config;
 
     /**
      * Creates a new CachedStore with the specified session
@@ -41,6 +42,25 @@ public class CachedStore extends Store {
         } else {
             this.mode = CacheMode.ACCELERATED; // Default to accelerated mode
         }
+
+        // Initialize default configuration
+        this.config = new CacheConfiguration();
+    }
+
+    /**
+     * Get the cache configuration
+     */
+    public CacheConfiguration getConfig() {
+        return config;
+    }
+
+    /**
+     * Set the cache configuration
+     *
+     * @param config The configuration to use
+     */
+    public void setConfig(CacheConfiguration config) {
+        this.config = config;
     }
 
     /**
@@ -62,11 +82,66 @@ public class CachedStore extends Store {
             return true;
         }
 
-        // For ONLINE and ACCELERATED modes, connect to IMAP
+        // For ONLINE and ACCELERATED modes, get IMAP settings from session properties if not provided
+        String imapHost = host;
+        int imapPort = port;
+        String imapUser = user;
+        String imapPassword = password;
+        boolean useSSL = true;  // Default to SSL
+
+        // Override with session properties if available
+        if (imapHost == null || imapHost.isEmpty()) {
+            imapHost = session.getProperty("mail.imaps.host");
+        }
+
+        if (imapPort <= 0) {
+            String portStr = session.getProperty("mail.imaps.port");
+            if (portStr != null && !portStr.isEmpty()) {
+                try {
+                    imapPort = Integer.parseInt(portStr);
+                } catch (NumberFormatException e) {
+                    imapPort = 993;  // Default IMAPS port
+                }
+            } else {
+                imapPort = 993;  // Default IMAPS port
+            }
+        }
+
+        //if (imapUser == null || imapUser.isEmpty()) {
+         //   imapUser = session.getProperty("mail.imaps.user");
+        //}
+
+        if (imapPassword == null || imapPassword.isEmpty()) {
+            imapUser = session.getProperty("mail.imaps.user");
+            imapPassword = session.getProperty("mail.imaps.password");
+        }
+
+        String sslStr = session.getProperty("mail.imaps.ssl.enable");
+        if (sslStr != null) {
+            useSSL = Boolean.parseBoolean(sslStr);
+        }
+
+        // Check if we have all the required parameters
+        if (imapHost == null || imapHost.isEmpty() ||
+                imapUser == null || imapUser.isEmpty() ||
+                imapPassword == null || imapPassword.isEmpty()) {
+
+            if (mode == CacheMode.ACCELERATED) {
+                // In ACCELERATED mode, we can continue with local cache
+                LOGGER.log(Level.WARNING, "Missing IMAP parameters. Operating in cache-only mode.");
+                return true;
+            } else {
+                // In ONLINE or DESTRUCTIVE mode, connection is required
+                connected = false;
+                throw new MessagingException("Missing required IMAP connection parameters");
+            }
+        }
+
+        // Connect to IMAP
         try {
-            // Get the IMAP store
-            imapStore = session.getStore("imaps");
-            imapStore.connect(host, port, user, password);
+            // Get the appropriate store based on SSL setting
+            imapStore = session.getStore(useSSL ? "imaps" : "imap");
+            imapStore.connect(imapHost, imapPort, imapUser, imapPassword);
             return true;
         } catch (MessagingException e) {
             // If we're in ACCELERATED mode, we can continue with local cache

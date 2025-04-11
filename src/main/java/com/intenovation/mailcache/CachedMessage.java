@@ -367,16 +367,23 @@ public class CachedMessage extends MimeMessage {
             attachmentsDir.mkdirs();
         }
 
-        // Save the attachment
-        File attachmentFile = new File(attachmentsDir, fileName);
-        try (InputStream is = part.getInputStream();
-             FileOutputStream fos = new FileOutputStream(attachmentFile)) {
+        // Only save attachments if configured to do so
+        CachedStore store = (CachedStore) folder.getStore();
+        if (store.getConfig().isCacheAttachments()) {
+            // Save the attachment
+            File attachmentFile = new File(attachmentsDir, fileName);
+            try (InputStream is = part.getInputStream();
+                 FileOutputStream fos = new FileOutputStream(attachmentFile)) {
 
-            byte[] buffer = new byte[8192];
-            int bytesRead;
-            while ((bytesRead = is.read(buffer)) != -1) {
-                fos.write(buffer, 0, bytesRead);
+                byte[] buffer = new byte[8192];
+                int bytesRead;
+                while ((bytesRead = is.read(buffer)) != -1) {
+                    fos.write(buffer, 0, bytesRead);
+                }
             }
+        } else {
+            // Just log that we're skipping the attachment
+            LOGGER.log(Level.FINE, "Skipping attachment " + fileName + " as per configuration");
         }
     }
 

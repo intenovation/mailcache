@@ -28,13 +28,7 @@ public class MailCache {
         Session session = Session.getInstance(props);
 
         // Register our provider
-        session.addProvider(new Provider(
-                Provider.Type.STORE,
-                "cache",
-                CachedStore.class.getName(),
-                "Intenovation",
-                "1.0"
-        ));
+        session.addProvider(CacheProviderFactory.getCachedStoreProvider());
 
         return session;
     }
@@ -70,13 +64,7 @@ public class MailCache {
         Session session = Session.getInstance(props);
 
         // Register our provider
-        session.addProvider(new Provider(
-                Provider.Type.STORE,
-                "cache",
-                CachedStore.class.getName(),
-                "Intenovation",
-                "1.0"
-        ));
+        session.addProvider(CacheProviderFactory.getCachedStoreProvider());
 
         return session;
     }
@@ -118,7 +106,8 @@ public class MailCache {
         Session session = createSession(cacheDir, mode, imapHost, imapPort,
                 username, password, useSSL);
         Store store = session.getStore();
-        store.connect(imapHost, username, password);
+        // Pass all parameters to ensure they're available in protocolConnect
+        store.connect(imapHost, imapPort, username, password);
         return (CachedStore) store;
     }
 
