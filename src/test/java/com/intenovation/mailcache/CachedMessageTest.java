@@ -70,7 +70,7 @@ public class CachedMessageTest {
         when(cachedFolder.getCacheDir()).thenReturn(folderDir);
 
         // Set up the IMAP message - must use when/thenReturn for each method
-        when(imapMessage.getHeader("Message-ID")).thenReturn(new String[]{"<test_message@example.com>"});
+        when(imapMessage.getHeader(CachedMessage.PROP_MESSAGE_ID)).thenReturn(new String[]{"<test_message@example.com>"});
         when(imapMessage.getSubject()).thenReturn("Test Subject");
         when(imapMessage.getFrom()).thenReturn(new Address[]{new InternetAddress("sender@example.com")});
         when(imapMessage.getSentDate()).thenReturn(new Date());
@@ -81,10 +81,10 @@ public class CachedMessageTest {
         // Create message properties
         File propsFile = new File(messageDir, "message.properties");
         Properties msgProps = new Properties();
-        msgProps.setProperty("Subject", "Test Subject");
-        msgProps.setProperty("From", "sender@example.com");
-        msgProps.setProperty("Date", new Date().toString());
-        msgProps.setProperty("Message-ID", "<test_message@example.com>");
+        msgProps.setProperty(CachedMessage.PROP_SUBJECT, "Test Subject");
+        msgProps.setProperty(CachedMessage.PROP_FROM, "sender@example.com");
+        msgProps.setProperty(CachedMessage.PROP_SENT_DATE, new Date().toString());
+        msgProps.setProperty(CachedMessage.PROP_MESSAGE_ID, "<test_message@example.com>");
 
         try (FileWriter writer = new FileWriter(propsFile)) {
             msgProps.store(writer, "Test Message");
