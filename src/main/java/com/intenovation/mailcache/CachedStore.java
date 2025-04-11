@@ -179,7 +179,7 @@ public class CachedStore extends Store {
             throw new IllegalStateException("Store not connected");
         }
 
-        return new CachedFolder(this, name, true);
+        return new CachedFolder(this, name, false);
     }
 
     /**

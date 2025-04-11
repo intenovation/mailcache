@@ -32,11 +32,12 @@ public class CachedFolder extends Folder {
         super(store);
         this.cachedStore = store;
         this.folderName = name;
-
-        // Create cache directory for this folder
-        if (createDirectory && store.getCacheDirectory() != null) {
+        if (store.getCacheDirectory() != null) {
             this.cacheDir = new File(store.getCacheDirectory(),
                     name.replace('/', File.separatorChar));
+        }
+        // Create cache directory for this folder
+        if (createDirectory && store.getCacheDirectory() != null) {
             if (!this.cacheDir.exists()) {
                 this.cacheDir.mkdirs();
             }
