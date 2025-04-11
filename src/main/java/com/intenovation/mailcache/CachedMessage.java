@@ -47,6 +47,13 @@ public class CachedMessage extends MimeMessage {
     private Properties messageProperties;
     private String content;
     private Flags flags;
+    private Date sentDate;
+    private Date receivedDate;
+    private String subject;
+    private String from;
+    private String[] to;
+    private String[] cc;
+    private String replyTo;
 
     /**
      * Create a new CachedMessage from an IMAP message
@@ -184,6 +191,27 @@ public class CachedMessage extends MimeMessage {
             if (propsFile.exists()) {
                 try (FileInputStream fis = new FileInputStream(propsFile)) {
                     messageProperties.load(fis);
+
+                    // Parse dates from properties
+                    String sentDateStr = messageProperties.getProperty(PROP_SENT_DATE);
+                    if (sentDateStr != null && !sentDateStr.isEmpty()) {
+                        try {
+                            java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+                            sentDate = sdf.parse(sentDateStr);
+                        } catch (java.text.ParseException e) {
+                            LOGGER.log(Level.WARNING, "Error parsing sent date: " + sentDateStr, e);
+                        }
+                    }
+
+                    String receivedDateStr = messageProperties.getProperty(PROP_RECEIVED_DATE);
+                    if (receivedDateStr != null && !receivedDateStr.isEmpty()) {
+                        try {
+                            java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+                            receivedDate = sdf.parse(receivedDateStr);
+                        } catch (java.text.ParseException e) {
+                            LOGGER.log(Level.WARNING, "Error parsing received date: " + receivedDateStr, e);
+                        }
+                    }
                 }
             }
 
@@ -256,9 +284,20 @@ public class CachedMessage extends MimeMessage {
             // Save properties
             try {
                 // Extract properties from message
-                messageProperties.setProperty(PROP_SENT_DATE,
-                        imapMessage.getSentDate() != null ?
-                                imapMessage.getSentDate().toString() : "");
+                // Format dates in the consistent format
+                java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+
+                // Save sent date
+                Date msgSentDate = imapMessage.getSentDate();
+                if (msgSentDate != null) {
+                    messageProperties.setProperty(PROP_SENT_DATE, sdf.format(msgSentDate));
+                }
+
+                // Save received date
+                Date msgReceivedDate = imapMessage.getReceivedDate();
+                if (msgReceivedDate != null) {
+                    messageProperties.setProperty(PROP_RECEIVED_DATE, sdf.format(msgReceivedDate));
+                }
 
                 messageProperties.setProperty(PROP_SUBJECT,
                         imapMessage.getSubject() != null ?
@@ -269,9 +308,50 @@ public class CachedMessage extends MimeMessage {
                     messageProperties.setProperty(PROP_FROM, from[0].toString());
                 }
 
+                // Save reply-to addresses
+                Address[] replyTo = imapMessage.getReplyTo();
+                if (replyTo != null && replyTo.length > 0) {
+                    StringBuilder replyToStr = new StringBuilder();
+                    for (int i = 0; i < replyTo.length; i++) {
+                        if (i > 0) replyToStr.append(", ");
+                        replyToStr.append(replyTo[i].toString());
+                    }
+                    messageProperties.setProperty(PROP_REPLY_TO, replyToStr.toString());
+                }
+
+                // Save recipient addresses
+                Address[] recipients = imapMessage.getRecipients(Message.RecipientType.TO);
+                if (recipients != null && recipients.length > 0) {
+                    StringBuilder toStr = new StringBuilder();
+                    for (int i = 0; i < recipients.length; i++) {
+                        if (i > 0) toStr.append(", ");
+                        toStr.append(recipients[i].toString());
+                    }
+                    messageProperties.setProperty(PROP_TO, toStr.toString());
+                }
+
+                // Save CC addresses
+                Address[] ccRecipients = imapMessage.getRecipients(Message.RecipientType.CC);
+                if (ccRecipients != null && ccRecipients.length > 0) {
+                    StringBuilder ccStr = new StringBuilder();
+                    for (int i = 0; i < ccRecipients.length; i++) {
+                        if (i > 0) ccStr.append(", ");
+                        ccStr.append(ccRecipients[i].toString());
+                    }
+                    messageProperties.setProperty(PROP_CC, ccStr.toString());
+                }
+
                 String[] headers = imapMessage.getHeader("Message-ID");
                 if (headers != null && headers.length > 0) {
                     messageProperties.setProperty(PROP_MESSAGE_ID, headers[0]);
+                    // Also save the folder-safe version
+                    messageProperties.setProperty(PROP_MESSAGE_ID_FOLDER, sanitizeFileName(headers[0]));
+                }
+
+                // Save message size
+                int size = imapMessage.getSize();
+                if (size > 0) {
+                    messageProperties.setProperty(PROP_SIZE_BYTES, String.valueOf(size));
                 }
 
                 // Save properties
@@ -475,9 +555,16 @@ public class CachedMessage extends MimeMessage {
             String dateStr = messageProperties.getProperty(PROP_SENT_DATE);
             if (dateStr != null && !dateStr.isEmpty()) {
                 try {
-                    return new Date(dateStr);
+                    // Try to parse using standard format first
+                    try {
+                        java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+                        return sdf.parse(dateStr);
+                    } catch (java.text.ParseException pe) {
+                        // Fall back to Date constructor if specific format fails
+                        return new Date(dateStr);
+                    }
                 } catch (Exception e) {
-                    LOGGER.log(Level.WARNING, "Error parsing date", e);
+                    LOGGER.log(Level.WARNING, "Error parsing sent date: " + dateStr, e);
                 }
             }
         }
