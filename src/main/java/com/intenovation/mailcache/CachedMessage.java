@@ -16,6 +16,30 @@ import java.nio.charset.StandardCharsets;
 public class CachedMessage extends MimeMessage {
     private static final Logger LOGGER = Logger.getLogger(CachedMessage.class.getName());
 
+    // Property key constants
+    public static final String PROP_MESSAGE_ID = "message.id";
+    public static final String PROP_MESSAGE_ID_FOLDER = "message.id.folder";
+    public static final String PROP_ORIGINAL_MESSAGE_ID = "original.message.id";
+    public static final String PROP_SUBJECT = "subject";
+    public static final String PROP_FROM = "from";
+    public static final String PROP_REPLY_TO = "reply.to";
+    public static final String PROP_TO = "to";
+    public static final String PROP_CC = "cc";
+    public static final String PROP_SENT_DATE = "sent.date";
+    public static final String PROP_RECEIVED_DATE = "received.date";
+    public static final String PROP_SIZE_BYTES = "size.bytes";
+    public static final String PROP_FOLDER_NAME_FORMAT = "folder.name.format";
+    public static final String PROP_ORIGINAL_FOLDER_NAME = "original.folder.name";
+
+    // File name constants
+    public static final String FILE_MESSAGE_PROPERTIES = "message.properties";
+    public static final String FILE_MESSAGE_MBOX = "message.mbox";
+    public static final String FILE_CONTENT_TXT = "content.txt";
+    public static final String FILE_CONTENT_HTML = "content.html";
+    public static final String FILE_FLAGS_TXT = "flags.txt";
+    public static final String DIR_ATTACHMENTS = "attachments";
+    public static final String DIR_EXTRAS = "extras";
+
     private Message imapMessage;
     private File messageDir;
     private boolean contentLoaded = false;
@@ -121,7 +145,7 @@ public class CachedMessage extends MimeMessage {
 
             // Try to get from properties
             if (messageProperties != null) {
-                return messageProperties.getProperty("Message-ID");
+                return messageProperties.getProperty(PROP_MESSAGE_ID);
             }
         } catch (MessagingException e) {
             LOGGER.log(Level.WARNING, "Error getting Message-ID", e);
@@ -143,7 +167,7 @@ public class CachedMessage extends MimeMessage {
 
         try {
             // Load serialized message if available
-            File mboxFile = new File(messageDir, "message.mbox");
+            File mboxFile = new File(messageDir, FILE_MESSAGE_MBOX);
             if (mboxFile.exists()) {
                 try (FileInputStream fis = new FileInputStream(mboxFile)) {
                     parse(fis);
@@ -156,7 +180,7 @@ public class CachedMessage extends MimeMessage {
             }
 
             // Load properties
-            File propsFile = new File(messageDir, "message.properties");
+            File propsFile = new File(messageDir, FILE_MESSAGE_PROPERTIES);
             if (propsFile.exists()) {
                 try (FileInputStream fis = new FileInputStream(propsFile)) {
                     messageProperties.load(fis);
@@ -164,7 +188,7 @@ public class CachedMessage extends MimeMessage {
             }
 
             // Load content
-            File contentFile = new File(messageDir, "content.txt");
+            File contentFile = new File(messageDir, FILE_CONTENT_TXT);
             if (contentFile.exists()) {
                 try {
                     content = new String(java.nio.file.Files.readAllBytes(
@@ -175,7 +199,7 @@ public class CachedMessage extends MimeMessage {
             }
 
             // Load flags
-            File flagsFile = new File(messageDir, "flags.txt");
+            File flagsFile = new File(messageDir, FILE_FLAGS_TXT);
             if (flagsFile.exists()) {
                 try (BufferedReader reader = new BufferedReader(
                         new FileReader(flagsFile))) {
@@ -221,7 +245,7 @@ public class CachedMessage extends MimeMessage {
             // First try to save as serialized message
             if (imapMessage instanceof MimeMessage) {
                 try (FileOutputStream fos = new FileOutputStream(
-                        new File(messageDir, "message.mbox"))) {
+                        new File(messageDir, FILE_MESSAGE_MBOX))) {
                     ((MimeMessage) imapMessage).writeTo(fos);
                 } catch (IOException e) {
                     LOGGER.log(Level.WARNING, "Error saving serialized message", e);
@@ -232,27 +256,27 @@ public class CachedMessage extends MimeMessage {
             // Save properties
             try {
                 // Extract properties from message
-                messageProperties.setProperty("Date",
+                messageProperties.setProperty(PROP_SENT_DATE,
                         imapMessage.getSentDate() != null ?
                                 imapMessage.getSentDate().toString() : "");
 
-                messageProperties.setProperty("Subject",
+                messageProperties.setProperty(PROP_SUBJECT,
                         imapMessage.getSubject() != null ?
                                 imapMessage.getSubject() : "");
 
                 Address[] from = imapMessage.getFrom();
                 if (from != null && from.length > 0) {
-                    messageProperties.setProperty("From", from[0].toString());
+                    messageProperties.setProperty(PROP_FROM, from[0].toString());
                 }
 
                 String[] headers = imapMessage.getHeader("Message-ID");
                 if (headers != null && headers.length > 0) {
-                    messageProperties.setProperty("Message-ID", headers[0]);
+                    messageProperties.setProperty(PROP_MESSAGE_ID, headers[0]);
                 }
 
                 // Save properties
                 try (FileOutputStream fos = new FileOutputStream(
-                        new File(messageDir, "message.properties"))) {
+                        new File(messageDir, FILE_MESSAGE_PROPERTIES))) {
                     messageProperties.store(fos, "Mail Message Properties");
                 }
             } catch (IOException e) {
@@ -265,7 +289,7 @@ public class CachedMessage extends MimeMessage {
                 if (msgContent instanceof String) {
                     content = (String) msgContent;
                     try (FileWriter writer = new FileWriter(
-                            new File(messageDir, "content.txt"))) {
+                            new File(messageDir, FILE_CONTENT_TXT))) {
                         writer.write(content);
                     }
                 } else if (msgContent instanceof Multipart) {
@@ -286,9 +310,9 @@ public class CachedMessage extends MimeMessage {
 
                             // Only save attachments if configured to do so
                             CachedStore store = (CachedStore) folder.getStore();
-                            //if (store.getConfig().isCacheAttachments()) {
+                            if (store.getConfig().isCacheAttachments()) {
                                 saveAttachment(part);
-                            //}
+                            }
                         } else {
                             // This part is likely the message body
                             Object partContent = part.getContent();
@@ -302,7 +326,7 @@ public class CachedMessage extends MimeMessage {
                     // Save the text content
                     content = textContent.toString();
                     try (FileWriter writer = new FileWriter(
-                            new File(messageDir, "content.txt"))) {
+                            new File(messageDir, FILE_CONTENT_TXT))) {
                         writer.write(content);
                     }
                 }
@@ -314,7 +338,7 @@ public class CachedMessage extends MimeMessage {
             try {
                 Flags msgFlags = imapMessage.getFlags();
                 try (FileWriter writer = new FileWriter(
-                        new File(messageDir, "flags.txt"))) {
+                        new File(messageDir, FILE_FLAGS_TXT))) {
                     if (msgFlags.contains(Flags.Flag.SEEN)) {
                         writer.write("SEEN\n");
                     }
@@ -362,7 +386,7 @@ public class CachedMessage extends MimeMessage {
         fileName = sanitizeFileName(fileName);
 
         // Create attachments directory if it doesn't exist
-        File attachmentsDir = new File(messageDir, "attachments");
+        File attachmentsDir = new File(messageDir, DIR_ATTACHMENTS);
         if (!attachmentsDir.exists()) {
             attachmentsDir.mkdirs();
         }
@@ -401,7 +425,7 @@ public class CachedMessage extends MimeMessage {
         }
 
         if (messageProperties != null) {
-            return messageProperties.getProperty("Subject");
+            return messageProperties.getProperty(PROP_SUBJECT);
         }
 
         return null;
@@ -421,7 +445,7 @@ public class CachedMessage extends MimeMessage {
         }
 
         if (messageProperties != null) {
-            String from = messageProperties.getProperty("From");
+            String from = messageProperties.getProperty(PROP_FROM);
             if (from != null && !from.isEmpty()) {
                 try {
                     return new Address[]{new InternetAddress(from)};
@@ -448,7 +472,7 @@ public class CachedMessage extends MimeMessage {
         }
 
         if (messageProperties != null) {
-            String dateStr = messageProperties.getProperty("Date");
+            String dateStr = messageProperties.getProperty(PROP_SENT_DATE);
             if (dateStr != null && !dateStr.isEmpty()) {
                 try {
                     return new Date(dateStr);
@@ -512,7 +536,7 @@ public class CachedMessage extends MimeMessage {
             try {
                 // Save flags
                 try (FileWriter writer = new FileWriter(
-                        new File(messageDir, "flags.txt"))) {
+                        new File(messageDir, FILE_FLAGS_TXT))) {
                     if (flags.contains(Flags.Flag.SEEN)) {
                         writer.write("SEEN\n");
                     }
@@ -608,7 +632,7 @@ public class CachedMessage extends MimeMessage {
         }
 
         // Check if we have a mbox file
-        File mboxFile = new File(messageDir, "message.mbox");
+        File mboxFile = new File(messageDir, FILE_MESSAGE_MBOX);
         if (mboxFile.exists()) {
             return new FileInputStream(mboxFile);
         }
@@ -628,7 +652,7 @@ public class CachedMessage extends MimeMessage {
         }
 
         // Check if we have a mbox file
-        File mboxFile = new File(messageDir, "message.mbox");
+        File mboxFile = new File(messageDir, FILE_MESSAGE_MBOX);
         if (mboxFile.exists()) {
             try (FileInputStream fis = new FileInputStream(mboxFile)) {
                 byte[] buffer = new byte[8192];
@@ -660,7 +684,7 @@ public class CachedMessage extends MimeMessage {
         String sanitizedFilename = filename.replaceAll("[\\\\/:*?\"<>|]", "_");
 
         // Create extras directory if it doesn't exist
-        File extrasDir = new File(messageDir, "extras");
+        File extrasDir = new File(messageDir, DIR_EXTRAS);
         if (!extrasDir.exists()) {
             extrasDir.mkdirs();
         }
@@ -687,7 +711,7 @@ public class CachedMessage extends MimeMessage {
         // Sanitize filename to prevent directory traversal
         String sanitizedFilename = filename.replaceAll("[\\\\/:*?\"<>|]", "_");
 
-        File extrasDir = new File(messageDir, "extras");
+        File extrasDir = new File(messageDir, DIR_EXTRAS);
         File file = new File(extrasDir, sanitizedFilename);
 
         if (!file.exists() || !file.isFile()) {
@@ -707,7 +731,7 @@ public class CachedMessage extends MimeMessage {
             return new String[0];
         }
 
-        File extrasDir = new File(messageDir, "extras");
+        File extrasDir = new File(messageDir, DIR_EXTRAS);
         if (!extrasDir.exists() || !extrasDir.isDirectory()) {
             return new String[0];
         }
@@ -735,7 +759,7 @@ public class CachedMessage extends MimeMessage {
             return new String[0];
         }
 
-        File attachmentsDir = new File(messageDir, "attachments");
+        File attachmentsDir = new File(messageDir, DIR_ATTACHMENTS);
         if (!attachmentsDir.exists() || !attachmentsDir.isDirectory()) {
             return new String[0];
         }
@@ -768,7 +792,7 @@ public class CachedMessage extends MimeMessage {
         // Sanitize filename to prevent directory traversal
         String sanitizedFilename = filename.replaceAll("[\\\\/:*?\"<>|]", "_");
 
-        File attachmentsDir = new File(messageDir, "attachments");
+        File attachmentsDir = new File(messageDir, DIR_ATTACHMENTS);
         File file = new File(attachmentsDir, sanitizedFilename);
 
         if (!file.exists() || !file.isFile()) {
