@@ -5,6 +5,7 @@ import javax.mail.internet.MimeMessage;
 import javax.mail.search.SearchTerm;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
@@ -538,14 +539,38 @@ public class CachedFolder extends Folder {
         // For other modes, append to server first
         if (imapFolder != null && imapFolder.isOpen()) {
             try {
-                imapFolder.appendMessages(msgs);
+                // Extract or convert IMAP messages for server operation
+                Message[] imapMessages = new Message[msgs.length];
+                for (int i = 0; i < msgs.length; i++) {
+                    if (msgs[i] instanceof CachedMessage) {
+                        CachedMessage cachedMsg = (CachedMessage) msgs[i];
+                        // Get the underlying IMAP message if available
+                        Message imapMsg = cachedMsg.getImapMessage();
+                        if (imapMsg != null) {
+                            imapMessages[i] = imapMsg;
+                        } else {
+                            // Create a new MimeMessage from the cached content
+                            imapMessages[i] = new MimeMessage(cachedStore.getSession(),
+                                    cachedMsg.getInputStream());
+                        }
+                    } else {
+                        imapMessages[i] = msgs[i];
+                    }
+                }
+
+                // Now append the IMAP messages to the IMAP folder
+                imapFolder.appendMessages(imapMessages);
             } catch (MessagingException e) {
                 LOGGER.log(Level.SEVERE, "Error appending messages to server", e);
                 throw e; // Don't continue if server operation failed
-            }
+
+        } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Error appending messages to server", e);
+            throw new MessagingException("Error appending messages to server",e); // Don't continue if server operation failed
+        }
         }
 
-        // Then save to local cache
+        // Then handle local cache operations
         if (cacheDir != null) {
             File messagesDir = new File(cacheDir, "messages");
             if (!messagesDir.exists()) {
@@ -553,25 +578,20 @@ public class CachedFolder extends Folder {
             }
 
             for (Message msg : msgs) {
-                // Generate formatted directory name
-                String dirName = formatMessageDirName(msg);
-
-                // Create message directory
-                File messageDir = new File(messagesDir, dirName);
-                if (messageDir.exists()) {
-                    throw new MessagingException("Message directory collision: " + dirName);
+                // If it's already a CachedMessage for this folder, skip
+                if (msg instanceof CachedMessage) {
+                    CachedMessage cachedMsg = (CachedMessage) msg;
+                    if (cachedMsg.getFolder() == this) {
+                        continue; // Already cached in this folder
+                    }
                 }
 
-                messageDir.mkdirs();
-
-                // Save message to cache
-                if (msg instanceof MimeMessage) {
-                    try (FileOutputStream fos = new FileOutputStream(
-                            new File(messageDir, "message.mbox"))) {
-                        ((MimeMessage) msg).writeTo(fos);
-                    } catch (Exception e) {
-                        throw new MessagingException("Error saving message", e);
-                    }
+                // Create a new CachedMessage - this will handle proper caching
+                try {
+                    new CachedMessage(this, msg);
+                } catch (MessagingException e) {
+                    LOGGER.log(Level.WARNING, "Error caching message: " + e.getMessage(), e);
+                    // Continue with other messages
                 }
             }
         }
@@ -884,14 +904,36 @@ public class CachedFolder extends Folder {
         // Move on server first if possible
         if (imapFolder != null && imapFolder.isOpen() && destFolder.imapFolder != null) {
             try {
-                // There's no standard moveMessages in JavaMail, so we'd need to implement
-                // using copy + delete in a real implementation
-                // This is just a placeholder for the actual server implementation
+                // Extract IMAP messages if needed
+                List<Message> imapMessages = new ArrayList<>();
+                for (Message msg : messages) {
+                    if (msg instanceof CachedMessage) {
+                        CachedMessage cachedMsg = (CachedMessage) msg;
+                        Message imapMsg = cachedMsg.getImapMessage();
+                        if (imapMsg != null) {
+                            imapMessages.add(imapMsg);
+                        }
+                    }
+                }
 
-                // Here's how it would conceptually work:
-                // 1. Copy messages to destination on server
-                // 2. Mark messages as deleted on server
-                // 3. Expunge source folder on server
+                if (!imapMessages.isEmpty()) {
+                    // There's no standard moveMessages in JavaMail, so we'd need to implement
+                    // using copy + delete in a real implementation
+
+                    // Here's how it would conceptually work:
+                    // 1. Copy messages to destination on server
+                    destFolder.imapFolder.appendMessages(imapMessages.toArray(new Message[0]));
+
+                    // 2. Mark messages as deleted on server
+                    for (Message msg : imapMessages) {
+                        msg.setFlag(Flags.Flag.DELETED, true);
+                    }
+
+                    // 3. Expunge source folder on server if in DESTRUCTIVE mode
+                    if (cachedStore.getMode() == CacheMode.DESTRUCTIVE) {
+                        imapFolder.expunge();
+                    }
+                }
             } catch (Exception e) {
                 LOGGER.log(Level.SEVERE, "Error moving messages on server", e);
                 throw new MessagingException("Failed to move messages on server", e);

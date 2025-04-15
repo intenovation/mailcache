@@ -100,6 +100,24 @@ public class CachedMessage extends MimeMessage {
     }
 
     /**
+     * Get the underlying IMAP message if available
+     *
+     * @return The IMAP message or null if not available
+     */
+    public Message getImapMessage() {
+        return imapMessage;
+    }
+
+    /**
+     * Get the folder this message belongs to
+     *
+     * @return The folder
+     */
+    public Folder getFolder() {
+        return folder;
+    }
+
+    /**
      * Get the local directory where this message is stored
      * This allows adding extra files to the message directory
      *
@@ -270,18 +288,7 @@ public class CachedMessage extends MimeMessage {
         }
 
         try {
-            // First try to save as serialized message
-            if (imapMessage instanceof MimeMessage) {
-                try (FileOutputStream fos = new FileOutputStream(
-                        new File(messageDir, FILE_MESSAGE_MBOX))) {
-                    ((MimeMessage) imapMessage).writeTo(fos);
-                } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, "Error saving serialized message", e);
-                    // Continue with other methods
-                }
-            }
-
-            // Save properties
+            // Save properties first for better referencing
             try {
                 // Extract properties from message
                 // Format dates in the consistent format
@@ -354,6 +361,9 @@ public class CachedMessage extends MimeMessage {
                     messageProperties.setProperty(PROP_SIZE_BYTES, String.valueOf(size));
                 }
 
+                // Save folder name for reference
+                messageProperties.setProperty(PROP_ORIGINAL_FOLDER_NAME, folder.getFullName());
+
                 // Save properties
                 try (FileOutputStream fos = new FileOutputStream(
                         new File(messageDir, FILE_MESSAGE_PROPERTIES))) {
@@ -361,6 +371,17 @@ public class CachedMessage extends MimeMessage {
                 }
             } catch (IOException e) {
                 LOGGER.log(Level.WARNING, "Error saving message properties", e);
+            }
+
+            // Save as serialized message for complete data preservation if possible
+            if (imapMessage instanceof MimeMessage) {
+                try (FileOutputStream fos = new FileOutputStream(
+                        new File(messageDir, FILE_MESSAGE_MBOX))) {
+                    ((MimeMessage) imapMessage).writeTo(fos);
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING, "Error saving serialized message", e);
+                    // Continue with other methods as we've already saved properties
+                }
             }
 
             // Save content
