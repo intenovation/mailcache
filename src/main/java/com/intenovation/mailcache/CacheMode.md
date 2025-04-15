@@ -10,7 +10,7 @@ The `CacheMode` enum defines four distinct operation modes for the mail cache sy
 - **Exceptions**:
     - Throws `MessagingException` when attempting to append messages
     - Throws `MessagingException` when attempting to modify message flags
-    - Throws `MessagingException` when attempting to rename folders
+    - Throws `MessagingException` when attempting to rename or Create folders
     - Does not throw exceptions for read operations
 
 ### ACCELERATED
@@ -45,7 +45,7 @@ The `CacheMode` enum defines four distinct operation modes for the mail cache sy
 | **Reading messages** | Local cache only | Local cache, then server | Local cache, then server | Same as ONLINE |
 | **Searching** | Local cache only | Local cache only | Server | Server |
 | **Flagging messages** | Exception | Server then cache | Server then cache | Server then cache |
-| **Creating folders** | Local cache only | Server then cache | Server then cache | Server then cache |
+| **Creating folders** | Exception | Server then cache | Server then cache | Server then cache |
 | **Appending messages** | Exception | Server then cache | Server then cache | Server then cache |
 | **Moving messages** | Exception | Server then cache | Server then cache | Server then cache |
 | **Renaming folders** | Exception | Server then cache | Server then cache | Server then cache |

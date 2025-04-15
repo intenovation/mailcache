@@ -103,7 +103,13 @@ public class CachedFolder extends Folder {
 
         // For ONLINE and other non-OFFLINE modes, also check IMAP
         if (cachedStore.getMode() != CacheMode.OFFLINE && imapFolder != null) {
-            return imapFolder.exists();
+            boolean imapFolderExists=imapFolder.exists();
+            if (imapFolderExists){
+                //exists remotely, so this is not synched. We do not have to create it remotely,
+                //let us create it locally, fix the synch problem
+                this.createLocally();
+            }
+            return imapFolderExists;
         }
 
         return false;
@@ -178,24 +184,8 @@ public class CachedFolder extends Folder {
     public boolean create(int type) throws MessagingException {
         // In OFFLINE mode, only create locally
         if (cachedStore.getMode() == CacheMode.OFFLINE) {
-            if (cacheDir != null && !cacheDir.exists()) {
-                boolean result = cacheDir.mkdirs();
+            throw new MessagingException("Cannot create folders in offline mode");
 
-                // Create messages directory
-                File messagesDir = new File(cacheDir, "messages");
-                if (!messagesDir.exists()) {
-                    messagesDir.mkdirs();
-                }
-
-                // Create archived messages directory
-                File archivedDir = new File(cacheDir, "archived_messages");
-                if (!archivedDir.exists()) {
-                    archivedDir.mkdirs();
-                }
-
-                return result;
-            }
-            return false;
         }
 
         // In other modes, try to create on server first
@@ -215,8 +205,13 @@ public class CachedFolder extends Folder {
         }
 
         // Then create locally
+        return createLocally();
+
+    }
+
+    private boolean createLocally() {
         if (cacheDir != null && !cacheDir.exists()) {
-            boolean dirCreated = cacheDir.mkdirs();
+            boolean result = cacheDir.mkdirs();
 
             // Create messages directory
             File messagesDir = new File(cacheDir, "messages");
@@ -230,10 +225,9 @@ public class CachedFolder extends Folder {
                 archivedDir.mkdirs();
             }
 
-            return dirCreated;
+            return true;
         }
-
-        return success;
+        return false;
     }
 
     @Override
