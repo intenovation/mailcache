@@ -100,12 +100,74 @@ public class CachedMessage extends MimeMessage {
     }
 
     /**
-     * Get the underlying IMAP message if available
+     * Get the underlying IMAP message if available, or attempt to find it on the server
      *
-     * @return The IMAP message or null if not available
+     * @return The IMAP message or null if not available or not found
      */
     public Message getImapMessage() {
-        return imapMessage;
+        // If we already have the IMAP message, return it
+        if (imapMessage != null) {
+            return imapMessage;
+        }
+
+        // If we're in OFFLINE mode, don't try to find the message on the server
+        CachedStore store = (CachedStore)folder.getStore();
+        if (store.getMode() == CacheMode.OFFLINE) {
+            return null;
+        }
+
+        // Try to find the message on the server
+        try {
+            // Get the folder from the server
+            Folder imapFolder = ((CachedFolder)folder).imapFolder;
+            if (imapFolder == null || !imapFolder.isOpen()) {
+                return null;
+            }
+
+            // Get the Message-ID from properties
+            String messageId = messageProperties.getProperty(PROP_MESSAGE_ID);
+            if (messageId == null || messageId.isEmpty()) {
+                return null;
+            }
+
+            // Search for the message on the server using Message-ID
+            Message[] messages = imapFolder.search(new javax.mail.search.HeaderTerm("Message-ID", messageId));
+            if (messages != null && messages.length > 0) {
+                // Found the message, store the reference for future use
+                imapMessage = messages[0];
+                return imapMessage;
+            }
+
+            // If we couldn't find it by Message-ID, try other criteria
+            // This is a fallback approach using sent date and subject
+            String subject = messageProperties.getProperty(PROP_SUBJECT);
+            String sentDateStr = messageProperties.getProperty(PROP_SENT_DATE);
+            if (subject != null && sentDateStr != null) {
+                try {
+                    java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+                    Date sentDate = sdf.parse(sentDateStr);
+
+                    // Get all messages in the folder
+                    Message[] allMessages = imapFolder.getMessages();
+                    for (Message msg : allMessages) {
+                        // Check if subject and date match
+                        if (subject.equals(msg.getSubject()) &&
+                                sentDate.equals(msg.getSentDate())) {
+                            // Found a likely match
+                            imapMessage = msg;
+                            return imapMessage;
+                        }
+                    }
+                } catch (java.text.ParseException e) {
+                    LOGGER.log(Level.WARNING, "Error parsing sent date: " + sentDateStr, e);
+                }
+            }
+        } catch (MessagingException e) {
+            LOGGER.log(Level.WARNING, "Error finding IMAP message: " + e.getMessage(), e);
+        }
+
+        // Couldn't find the message on the server
+        return null;
     }
 
     /**

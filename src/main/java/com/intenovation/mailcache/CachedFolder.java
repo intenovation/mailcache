@@ -20,7 +20,7 @@ public class CachedFolder extends Folder {
     private static final Logger LOGGER = Logger.getLogger(CachedFolder.class.getName());
 
     private CachedStore cachedStore;
-    private Folder imapFolder;
+    public Folder imapFolder;
     private File cacheDir;
     private String folderName;
     private boolean isOpen = false;
