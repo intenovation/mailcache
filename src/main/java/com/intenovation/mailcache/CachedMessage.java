@@ -33,7 +33,6 @@ public class CachedMessage extends MimeMessage {
 
     // File name constants
     public static final String FILE_MESSAGE_PROPERTIES = "message.properties";
-    public static final String FILE_MESSAGE_MBOX = "message.mbox";
     public static final String FILE_CONTENT_TXT = "content.txt";
     public static final String FILE_CONTENT_HTML = "content.html";
     public static final String FILE_FLAGS_TXT = "flags.txt";
@@ -253,18 +252,6 @@ public class CachedMessage extends MimeMessage {
         }
 
         try {
-            // Load serialized message if available
-            File mboxFile = new File(messageDir, FILE_MESSAGE_MBOX);
-            if (mboxFile.exists()) {
-                try (FileInputStream fis = new FileInputStream(mboxFile)) {
-                    parse(fis);
-                    contentLoaded = true;
-                    return;
-                } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, "Error loading serialized message", e);
-                    // Continue with other methods
-                }
-            }
 
             // Load properties
             File propsFile = new File(messageDir, FILE_MESSAGE_PROPERTIES);
@@ -435,16 +422,6 @@ public class CachedMessage extends MimeMessage {
                 LOGGER.log(Level.WARNING, "Error saving message properties", e);
             }
 
-            // Save as serialized message for complete data preservation if possible
-            if (imapMessage instanceof MimeMessage) {
-                try (FileOutputStream fos = new FileOutputStream(
-                        new File(messageDir, FILE_MESSAGE_MBOX))) {
-                    ((MimeMessage) imapMessage).writeTo(fos);
-                } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, "Error saving serialized message", e);
-                    // Continue with other methods as we've already saved properties
-                }
-            }
 
             // Save content
             try {
@@ -801,11 +778,7 @@ public class CachedMessage extends MimeMessage {
             return new ByteArrayInputStream(content.getBytes(StandardCharsets.UTF_8));
         }
 
-        // Check if we have a mbox file
-        File mboxFile = new File(messageDir, FILE_MESSAGE_MBOX);
-        if (mboxFile.exists()) {
-            return new FileInputStream(mboxFile);
-        }
+
 
         return new ByteArrayInputStream(new byte[0]);
     }
@@ -814,24 +787,11 @@ public class CachedMessage extends MimeMessage {
     public void writeTo(OutputStream os) throws IOException, MessagingException {
         // If we have an IMAP message and in ONLINE mode, use it
         CachedStore store = (CachedStore)folder.getStore();
-        if (imapMessage != null && store.getMode() == CacheMode.ONLINE) {
+        if (imapMessage != null) {
             if (imapMessage instanceof MimeMessage) {
                 ((MimeMessage)imapMessage).writeTo(os);
                 return;
             }
-        }
-
-        // Check if we have a mbox file
-        File mboxFile = new File(messageDir, FILE_MESSAGE_MBOX);
-        if (mboxFile.exists()) {
-            try (FileInputStream fis = new FileInputStream(mboxFile)) {
-                byte[] buffer = new byte[8192];
-                int bytesRead;
-                while ((bytesRead = fis.read(buffer)) != -1) {
-                    os.write(buffer, 0, bytesRead);
-                }
-            }
-            return;
         }
 
         // Otherwise, need to build a MimeMessage from properties and content
