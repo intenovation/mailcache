@@ -10,6 +10,8 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.nio.charset.StandardCharsets;
 import org.jsoup.Jsoup;
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.text.PDFTextStripper;
 
 /**
  * A JavaMail Message implementation that supports caching
@@ -1407,4 +1409,58 @@ public class CachedMessage extends MimeMessage {
 
         return true;
     }
+
+    /**
+     * Get the text content of an attachment, extracting text from PDFs if needed
+     *
+     * @param attachmentName The name of the attachment
+     * @return The text content of the attachment, or null if not available or not convertible
+     * @throws IOException If there is an error reading or processing the attachment
+     * @throws MessagingException If there is a messaging error
+     */
+    public String getTextAttachment(String attachmentName) throws IOException, MessagingException {
+        if (messageDir == null || !messageDir.exists()) {
+            return null;
+        }
+
+        // Sanitize filename to prevent directory traversal
+        String sanitizedFilename = attachmentName.replaceAll("[\\\\/:*?\"<>|]", "_");
+
+        File attachmentsDir = new File(messageDir, DIR_ATTACHMENTS);
+        File attachmentFile = new File(attachmentsDir, sanitizedFilename);
+
+        // Check if the attachment exists
+        if (!attachmentFile.exists() || !attachmentFile.isFile()) {
+            return null;
+        }
+
+        // Check if there's already a cached text version
+        File textVersionFile = new File(attachmentsDir, sanitizedFilename + ".txt");
+        if (textVersionFile.exists()) {
+            // Return the cached text version
+            return new String(java.nio.file.Files.readAllBytes(textVersionFile.toPath()), StandardCharsets.UTF_8);
+        }
+
+        // If the attachment is a PDF, try to extract text
+        if (attachmentName.toLowerCase().endsWith(".pdf")) {
+            try (PDDocument document = PDDocument.load(attachmentFile)) {
+                PDFTextStripper stripper = new PDFTextStripper();
+                String text = stripper.getText(document);
+
+                // Cache the extracted text
+                try (FileWriter writer = new FileWriter(textVersionFile)) {
+                    writer.write(text);
+                }
+
+                return text;
+            } catch (Exception e) {
+                LOGGER.log(Level.WARNING, "Error extracting text from PDF: " + attachmentName, e);
+                return null;
+            }
+        }
+
+        // For non-PDF attachments, return null or potentially add other converters here
+        return null;
+    }
+
 }
