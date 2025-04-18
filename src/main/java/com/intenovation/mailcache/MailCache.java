@@ -16,14 +16,14 @@ public class MailCache {
      * Create a new cached mail session
      *
      * @param cacheDir The directory to use for caching
-     * @param mode The cache operation mode
+
      * @return A new Session configured for caching
      */
-    public static Session createSession(File cacheDir, CacheMode mode) {
+    public static Session createOfflineSession(File cacheDir) {
         Properties props = new Properties();
         props.setProperty("mail.store.protocol", "cache");
         props.setProperty("mail.cache.directory", cacheDir.getAbsolutePath());
-        props.setProperty("mail.cache.mode", mode.name());
+        props.setProperty("mail.cache.mode", CacheMode.OFFLINE.name());
 
         Session session = Session.getInstance(props);
 
@@ -69,21 +69,7 @@ public class MailCache {
         return session;
     }
 
-    /**
-     * Open a cached store
-     *
-     * @param cacheDir The directory to use for caching
-     * @param mode The cache operation mode
-     * @return A connected CachedStore
-     * @throws MessagingException If there is an error connecting
-     */
-    public static CachedStore openStore(File cacheDir, CacheMode mode)
-            throws MessagingException {
-        Session session = createSession(cacheDir, mode);
-        Store store = session.getStore();
-        store.connect();
-        return (CachedStore) store;
-    }
+
 
     /**
      * Open a cached store with IMAP connectivity
