@@ -833,7 +833,7 @@ public class CachedMessage extends MimeMessage {
     /**
      * Get the text content if available
      * If text content is not available but HTML content is,
-     * converts HTML to text using Jsoup
+     * converts HTML to text using Jsoup and caches the result
      *
      * @return Text content, never null
      * @throws MessagingException If there is an error accessing the content
@@ -849,17 +849,30 @@ public class CachedMessage extends MimeMessage {
                         return (String) content;
                     } else {
                         // Convert HTML to text using Jsoup
-                        return Jsoup.parse((String) content).wholeText();
+                        String htmlStr = (String) content;
+                        String textStr = Jsoup.parse(htmlStr).wholeText();
+
+                        // Store both versions in cache
+                        cacheHtmlAndTextContent(htmlStr, textStr);
+
+                        return textStr;
                     }
                 } else if (content instanceof Multipart) {
                     StringBuilder text = new StringBuilder();
                     StringBuilder html = new StringBuilder();
                     processMimePartContent(imapMessage, text, html);
+
                     if (text.length() > 0) {
                         return text.toString();
                     } else if (html.length() > 0) {
                         // Convert HTML to text using Jsoup
-                        return Jsoup.parse(html.toString()).wholeText();
+                        String htmlStr = html.toString();
+                        String textStr = Jsoup.parse(htmlStr).wholeText();
+
+                        // Store both versions in cache
+                        cacheHtmlAndTextContent(htmlStr, textStr);
+
+                        return textStr;
                     }
                 }
             } catch (IOException e) {
@@ -872,15 +885,114 @@ public class CachedMessage extends MimeMessage {
             loadFromCache();
         }
 
-        if (hasTextContent) {
+        // Check if we have text content
+        if (hasTextContent && textContent != null) {
+            // Check if textContent contains HTML (possible in legacy messages)
+            if (textContent.toLowerCase().contains("<html") ||
+                    textContent.toLowerCase().contains("<body")) {
+                try {
+                    // This is actually HTML content stored in the wrong file
+                    // Move it to HTML content and convert to text
+                    String htmlStr = textContent;
+                    String textStr = Jsoup.parse(htmlStr).wholeText();
+
+                    // Update cache files
+                    cacheHtmlAndTextContent(htmlStr, textStr);
+
+                    return textStr;
+                } catch (Exception e) {
+                    LOGGER.log(Level.WARNING, "Error converting HTML to text", e);
+                }
+            }
             return textContent;
-        } else if (hasHtmlContent) {
-            // Convert HTML to text using Jsoup
-            return Jsoup.parse(htmlContent).wholeText();
+        } else if (hasHtmlContent && htmlContent != null) {
+            try {
+                // Convert HTML to text using Jsoup
+                String textStr = Jsoup.parse(htmlContent).wholeText();
+
+                // Cache the text content
+                cacheTextContent(textStr);
+
+                return textStr;
+            } catch (Exception e) {
+                LOGGER.log(Level.WARNING, "Error converting HTML to text", e);
+                // Fall back to empty string
+            }
         }
 
         // Return empty string instead of null
         return "";
+    }
+
+    /**
+     * Helper method to cache both HTML and text content
+     */
+    private void cacheHtmlAndTextContent(String htmlContent, String textContent) {
+        if (messageDir == null || !messageDir.exists()) {
+            return;
+        }
+
+        try {
+            // Save HTML content
+            if (htmlContent != null && !htmlContent.isEmpty()) {
+                try (FileWriter writer = new FileWriter(
+                        new File(messageDir, FILE_CONTENT_HTML))) {
+                    writer.write(htmlContent);
+                }
+                this.htmlContent = htmlContent;
+                this.hasHtmlContent = true;
+                messageProperties.setProperty(PROP_HAS_HTML_CONTENT, "true");
+            }
+
+            // Save text content
+            if (textContent != null && !textContent.isEmpty()) {
+                try (FileWriter writer = new FileWriter(
+                        new File(messageDir, FILE_CONTENT_TXT))) {
+                    writer.write(textContent);
+                }
+                this.textContent = textContent;
+                this.hasTextContent = true;
+                messageProperties.setProperty(PROP_HAS_TEXT_CONTENT, "true");
+            }
+
+            // Update properties file
+            try (FileOutputStream fos = new FileOutputStream(
+                    new File(messageDir, FILE_MESSAGE_PROPERTIES))) {
+                messageProperties.store(fos, "Mail Message Properties");
+            }
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Error caching content", e);
+        }
+    }
+
+    /**
+     * Helper method to cache only text content
+     */
+    private void cacheTextContent(String textContent) {
+        if (messageDir == null || !messageDir.exists()) {
+            return;
+        }
+
+        try {
+            // Save text content
+            if (textContent != null && !textContent.isEmpty()) {
+                try (FileWriter writer = new FileWriter(
+                        new File(messageDir, FILE_CONTENT_TXT))) {
+                    writer.write(textContent);
+                }
+                this.textContent = textContent;
+                this.hasTextContent = true;
+                messageProperties.setProperty(PROP_HAS_TEXT_CONTENT, "true");
+
+                // Update properties file
+                try (FileOutputStream fos = new FileOutputStream(
+                        new File(messageDir, FILE_MESSAGE_PROPERTIES))) {
+                    messageProperties.store(fos, "Mail Message Properties");
+                }
+            }
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Error caching text content", e);
+        }
     }
 
     /**
