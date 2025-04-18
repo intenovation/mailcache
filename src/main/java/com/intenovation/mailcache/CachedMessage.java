@@ -9,6 +9,7 @@ import java.util.Properties;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.nio.charset.StandardCharsets;
+import org.jsoup.Jsoup;
 
 /**
  * A JavaMail Message implementation that supports caching
@@ -831,8 +832,10 @@ public class CachedMessage extends MimeMessage {
 
     /**
      * Get the text content if available
+     * If text content is not available but HTML content is,
+     * converts HTML to text using Jsoup
      *
-     * @return Text content or null if not available
+     * @return Text content, never null
      * @throws MessagingException If there is an error accessing the content
      */
     public String getTextContent() throws MessagingException {
@@ -844,12 +847,19 @@ public class CachedMessage extends MimeMessage {
                 if (content instanceof String) {
                     if (!isHtmlContent(imapMessage, content)) {
                         return (String) content;
+                    } else {
+                        // Convert HTML to text using Jsoup
+                        return Jsoup.parse((String) content).wholeText();
                     }
                 } else if (content instanceof Multipart) {
                     StringBuilder text = new StringBuilder();
-                    processMimePartContent(imapMessage, text, new StringBuilder());
+                    StringBuilder html = new StringBuilder();
+                    processMimePartContent(imapMessage, text, html);
                     if (text.length() > 0) {
                         return text.toString();
+                    } else if (html.length() > 0) {
+                        // Convert HTML to text using Jsoup
+                        return Jsoup.parse(html.toString()).wholeText();
                     }
                 }
             } catch (IOException e) {
@@ -862,7 +872,15 @@ public class CachedMessage extends MimeMessage {
             loadFromCache();
         }
 
-        return hasTextContent ? textContent : null;
+        if (hasTextContent) {
+            return textContent;
+        } else if (hasHtmlContent) {
+            // Convert HTML to text using Jsoup
+            return Jsoup.parse(htmlContent).wholeText();
+        }
+
+        // Return empty string instead of null
+        return "";
     }
 
     /**
