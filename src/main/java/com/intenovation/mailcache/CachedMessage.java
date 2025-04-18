@@ -689,7 +689,7 @@ public class CachedMessage extends MimeMessage {
     public String getSubject() throws MessagingException {
         // If we have an IMAP message and in ONLINE mode, use it
         CachedStore store = (CachedStore)folder.getStore();
-        if (imapMessage != null && store.getMode() == CacheMode.ONLINE) {
+        if (isOnline(store)) {
             return imapMessage.getSubject();
         }
 
@@ -709,7 +709,7 @@ public class CachedMessage extends MimeMessage {
     public Address[] getFrom() throws MessagingException {
         // If we have an IMAP message and in ONLINE mode, use it
         CachedStore store = (CachedStore)folder.getStore();
-        if (imapMessage != null && store.getMode() == CacheMode.ONLINE) {
+        if (isOnline(store)) {
             return imapMessage.getFrom();
         }
 
@@ -732,11 +732,15 @@ public class CachedMessage extends MimeMessage {
         return null;
     }
 
+    private boolean isOnline(CachedStore store) {
+        return imapMessage != null && (store.getMode() == CacheMode.ONLINE || store.getMode() == CacheMode.DESTRUCTIVE);
+    }
+
     @Override
     public Date getSentDate() throws MessagingException {
         // If we have an IMAP message and in ONLINE mode, use it
         CachedStore store = (CachedStore)folder.getStore();
-        if (imapMessage != null && store.getMode() == CacheMode.ONLINE) {
+        if (isOnline(store)) {
             return imapMessage.getSentDate();
         }
 
@@ -770,7 +774,7 @@ public class CachedMessage extends MimeMessage {
     public Object getContent() throws MessagingException, IOException {
         // If we have an IMAP message and in ONLINE mode, use it
         CachedStore store = (CachedStore)folder.getStore();
-        if (imapMessage != null && store.getMode() == CacheMode.ONLINE) {
+        if (isOnline(store)) {
             return imapMessage.getContent();
         }
 
@@ -798,7 +802,7 @@ public class CachedMessage extends MimeMessage {
     public String getHtmlContent() throws MessagingException {
         // If we have an IMAP message and in ONLINE mode, try to get HTML content
         CachedStore store = (CachedStore)folder.getStore();
-        if (imapMessage != null && store.getMode() == CacheMode.ONLINE) {
+        if (isOnline(store)) {
             try {
                 Object content = imapMessage.getContent();
                 if (content instanceof String) {
@@ -834,7 +838,7 @@ public class CachedMessage extends MimeMessage {
     public String getTextContent() throws MessagingException {
         // If we have an IMAP message and in ONLINE mode, try to get text content
         CachedStore store = (CachedStore)folder.getStore();
-        if (imapMessage != null && store.getMode() == CacheMode.ONLINE) {
+        if (isOnline(store)) {
             try {
                 Object content = imapMessage.getContent();
                 if (content instanceof String) {
@@ -870,7 +874,7 @@ public class CachedMessage extends MimeMessage {
     public boolean hasHtmlContent() throws MessagingException {
         // If we have an IMAP message and in ONLINE mode, check it
         CachedStore store = (CachedStore)folder.getStore();
-        if (imapMessage != null && store.getMode() == CacheMode.ONLINE) {
+        if (isOnline(store)) {
             try {
                 Object msgContent = imapMessage.getContent();
                 if (msgContent instanceof String) {
@@ -902,7 +906,7 @@ public class CachedMessage extends MimeMessage {
     public boolean hasTextContent() throws MessagingException {
         // If we have an IMAP message and in ONLINE mode, check it
         CachedStore store = (CachedStore)folder.getStore();
-        if (imapMessage != null && store.getMode() == CacheMode.ONLINE) {
+        if (isOnline(store)) {
             try {
                 Object msgContent = imapMessage.getContent();
                 if (msgContent instanceof String) {
@@ -934,7 +938,7 @@ public class CachedMessage extends MimeMessage {
     public boolean isHtmlContent() throws MessagingException {
         // If we have an IMAP message and in ONLINE mode, check it
         CachedStore store = (CachedStore)folder.getStore();
-        if (imapMessage != null && store.getMode() == CacheMode.ONLINE) {
+        if (isOnline(store)) {
             try {
                 return hasHtmlContent();
             } catch (Exception e) {
@@ -1020,7 +1024,7 @@ public class CachedMessage extends MimeMessage {
     public Flags getFlags() throws MessagingException {
         // If we have an IMAP message and in ONLINE mode, use it
         CachedStore store = (CachedStore)folder.getStore();
-        if (imapMessage != null && store.getMode() == CacheMode.ONLINE) {
+        if (isOnline(store)) {
             return imapMessage.getFlags();
         }
 
@@ -1036,7 +1040,7 @@ public class CachedMessage extends MimeMessage {
     public boolean isSet(Flags.Flag flag) throws MessagingException {
         // If we have an IMAP message and in ONLINE mode, use it
         CachedStore store = (CachedStore)folder.getStore();
-        if (imapMessage != null && store.getMode() == CacheMode.ONLINE) {
+        if (isOnline(store)) {
             return imapMessage.isSet(flag);
         }
 
@@ -1052,7 +1056,7 @@ public class CachedMessage extends MimeMessage {
     public int getSize() throws MessagingException {
         // If we have an IMAP message and in ONLINE mode, use it
         CachedStore store = (CachedStore)folder.getStore();
-        if (imapMessage != null && store.getMode() == CacheMode.ONLINE) {
+        if (isOnline(store)) {
             return imapMessage.getSize();
         }
 
@@ -1075,7 +1079,7 @@ public class CachedMessage extends MimeMessage {
     public InputStream getInputStream() throws IOException, MessagingException {
         // If we have an IMAP message and in ONLINE mode, use it
         CachedStore store = (CachedStore)folder.getStore();
-        if (imapMessage != null && store.getMode() == CacheMode.ONLINE) {
+        if (isOnline(store)) {
             return imapMessage.getInputStream();
         }
 
