@@ -30,6 +30,7 @@ public class CachedMessage extends MimeMessage {
     public static final String PROP_SIZE_BYTES = "size.bytes";
     public static final String PROP_FOLDER_NAME_FORMAT = "folder.name.format";
     public static final String PROP_ORIGINAL_FOLDER_NAME = "original.folder.name";
+    public static final String PROP_CONTENT_TYPE = "content.type";
 
     // File name constants
     public static final String FILE_MESSAGE_PROPERTIES = "message.properties";
@@ -45,6 +46,7 @@ public class CachedMessage extends MimeMessage {
     private CachedFolder folder;
     private Properties messageProperties;
     private String content;
+    private boolean isHtmlContent = false;
     private Flags flags;
     private Date sentDate;
     private Date receivedDate;
@@ -222,6 +224,32 @@ public class CachedMessage extends MimeMessage {
         return prefix + sanitizedSubject;
     }
 
+    /**
+     * Checks if content is HTML based on MIME type and content
+     *
+     * @param part The message part to check
+     * @param content The content of the part
+     * @return true if the content is HTML, false otherwise
+     */
+    private boolean isHtmlContent(Part part, Object content) throws MessagingException {
+        try {
+            // Check MIME type first
+            if (part.isMimeType("text/html")) {
+                return true;
+            }
+
+            // Check if it's text/plain but contains HTML tags
+            if (part.isMimeType("text/plain") && content instanceof String) {
+                String strContent = (String) content;
+                return strContent.toLowerCase().contains("<html");
+            }
+        } catch (MessagingException e) {
+            LOGGER.log(Level.WARNING, "Error checking HTML content", e);
+        }
+
+        return false;
+    }
+
     private String getMessageId() {
         try {
             if (imapMessage != null) {
@@ -252,7 +280,6 @@ public class CachedMessage extends MimeMessage {
         }
 
         try {
-
             // Load properties
             File propsFile = new File(messageDir, FILE_MESSAGE_PROPERTIES);
             if (propsFile.exists()) {
@@ -279,17 +306,32 @@ public class CachedMessage extends MimeMessage {
                             LOGGER.log(Level.WARNING, "Error parsing received date: " + receivedDateStr, e);
                         }
                     }
+
+                    // Check for content type
+                    String contentType = messageProperties.getProperty(PROP_CONTENT_TYPE);
+                    isHtmlContent = "text/html".equals(contentType);
                 }
             }
 
-            // Load content
-            File contentFile = new File(messageDir, FILE_CONTENT_TXT);
-            if (contentFile.exists()) {
+            // Load content - first check for HTML content, then fall back to TXT
+            File htmlContentFile = new File(messageDir, FILE_CONTENT_HTML);
+            File txtContentFile = new File(messageDir, FILE_CONTENT_TXT);
+
+            if (htmlContentFile.exists()) {
                 try {
                     content = new String(java.nio.file.Files.readAllBytes(
-                            contentFile.toPath()), StandardCharsets.UTF_8);
+                            htmlContentFile.toPath()), StandardCharsets.UTF_8);
+                    isHtmlContent = true;
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, "Error loading message content", e);
+                    LOGGER.log(Level.WARNING, "Error loading HTML message content", e);
+                }
+            } else if (txtContentFile.exists()) {
+                try {
+                    content = new String(java.nio.file.Files.readAllBytes(
+                            txtContentFile.toPath()), StandardCharsets.UTF_8);
+                    isHtmlContent = false;
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING, "Error loading text message content", e);
                 }
             }
 
@@ -422,25 +464,41 @@ public class CachedMessage extends MimeMessage {
                 LOGGER.log(Level.WARNING, "Error saving message properties", e);
             }
 
-
             // Save content
             try {
                 Object msgContent = imapMessage.getContent();
+                boolean isHtml = false;
+
                 if (msgContent instanceof String) {
+                    // Check if it's HTML content
+                    isHtml = isHtmlContent(imapMessage, msgContent);
                     content = (String) msgContent;
-                    try (FileWriter writer = new FileWriter(
-                            new File(messageDir, FILE_CONTENT_TXT))) {
+
+                    // Store the content in the appropriate file based on type
+                    String contentFileName = isHtml ? FILE_CONTENT_HTML : FILE_CONTENT_TXT;
+                    try (FileWriter writer = new FileWriter(new File(messageDir, contentFileName))) {
                         writer.write(content);
                     }
+
+                    // Save content type in properties
+                    messageProperties.setProperty(PROP_CONTENT_TYPE, isHtml ? "text/html" : "text/plain");
+                    try (FileOutputStream fos = new FileOutputStream(
+                            new File(messageDir, FILE_MESSAGE_PROPERTIES))) {
+                        messageProperties.store(fos, "Mail Message Properties");
+                    }
+
+                    this.isHtmlContent = isHtml;
+
                 } else if (msgContent instanceof Multipart) {
                     // Process multipart content
                     Multipart multipart = (Multipart) msgContent;
                     StringBuilder textContent = new StringBuilder();
+                    StringBuilder htmlContent = new StringBuilder();
+                    boolean foundHtml = false;
 
                     // Extract text content and save attachments
                     for (int i = 0; i < multipart.getCount(); i++) {
                         BodyPart part = multipart.getBodyPart(i);
-
                         String disposition = part.getDisposition();
 
                         // Check if this part is an attachment
@@ -457,17 +515,50 @@ public class CachedMessage extends MimeMessage {
                             // This part is likely the message body
                             Object partContent = part.getContent();
                             if (partContent instanceof String) {
-                                textContent.append((String) partContent);
-                                textContent.append("\n");
+                                if (isHtmlContent(part, partContent)) {
+                                    // HTML content
+                                    htmlContent.append((String) partContent);
+                                    foundHtml = true;
+                                } else {
+                                    // Plain text content
+                                    textContent.append((String) partContent);
+                                    textContent.append("\n");
+                                }
                             }
                         }
                     }
 
-                    // Save the text content
-                    content = textContent.toString();
-                    try (FileWriter writer = new FileWriter(
-                            new File(messageDir, FILE_CONTENT_TXT))) {
-                        writer.write(content);
+                    // Save the content - prefer HTML if available
+                    if (foundHtml) {
+                        content = htmlContent.toString();
+                        try (FileWriter writer = new FileWriter(
+                                new File(messageDir, FILE_CONTENT_HTML))) {
+                            writer.write(content);
+                        }
+
+                        // Save content type in properties
+                        messageProperties.setProperty(PROP_CONTENT_TYPE, "text/html");
+                        try (FileOutputStream fos = new FileOutputStream(
+                                new File(messageDir, FILE_MESSAGE_PROPERTIES))) {
+                            messageProperties.store(fos, "Mail Message Properties");
+                        }
+
+                        this.isHtmlContent = true;
+                    } else {
+                        content = textContent.toString();
+                        try (FileWriter writer = new FileWriter(
+                                new File(messageDir, FILE_CONTENT_TXT))) {
+                            writer.write(content);
+                        }
+
+                        // Save content type in properties
+                        messageProperties.setProperty(PROP_CONTENT_TYPE, "text/plain");
+                        try (FileOutputStream fos = new FileOutputStream(
+                                new File(messageDir, FILE_MESSAGE_PROPERTIES))) {
+                            messageProperties.store(fos, "Mail Message Properties");
+                        }
+
+                        this.isHtmlContent = false;
                     }
                 }
             } catch (IOException e) {
@@ -648,6 +739,32 @@ public class CachedMessage extends MimeMessage {
         return content != null ? content : "";
     }
 
+    /**
+     * Check if the content is HTML
+     *
+     * @return true if the content is HTML, false otherwise
+     */
+    public boolean isHtmlContent() throws MessagingException {
+        // If we have an IMAP message and in ONLINE mode, check it
+        CachedStore store = (CachedStore)folder.getStore();
+        if (imapMessage != null && store.getMode() == CacheMode.ONLINE) {
+            try {
+                Object msgContent = imapMessage.getContent();
+                return isHtmlContent(imapMessage, msgContent);
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING, "Error checking HTML content from IMAP", e);
+                return false;
+            }
+        }
+
+        // Otherwise use cached value
+        if (!contentLoaded) {
+            loadFromCache();
+        }
+
+        return isHtmlContent;
+    }
+
     @Override
     public void setFlags(Flags flag, boolean set) throws MessagingException {
         // In OFFLINE mode, cannot modify
@@ -777,8 +894,6 @@ public class CachedMessage extends MimeMessage {
         if (content != null) {
             return new ByteArrayInputStream(content.getBytes(StandardCharsets.UTF_8));
         }
-
-
 
         return new ByteArrayInputStream(new byte[0]);
     }
