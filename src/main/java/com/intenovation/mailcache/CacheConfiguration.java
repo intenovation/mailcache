@@ -5,8 +5,6 @@ package com.intenovation.mailcache;
  */
 public class CacheConfiguration {
     private boolean cacheAttachments = true;
-    private long maxMessageSize = -1; // No limit by default
-    private int retentionDays = 30;
     private boolean compressMessages = false;
     private boolean indexContent = true;
     private long maxCacheSize = -1; // No limit by default
@@ -37,45 +35,8 @@ public class CacheConfiguration {
         return this;
     }
     
-    /**
-     * Get the maximum message size to cache (in bytes)
-     * A value of -1 means no limit
-     */
-    public long getMaxMessageSize() {
-        return maxMessageSize;
-    }
-    
-    /**
-     * Set the maximum message size to cache (in bytes)
-     * A value of -1 means no limit
-     * 
-     * @param maxMessageSize The maximum size in bytes
-     * @return this configuration instance for chaining
-     */
-    public CacheConfiguration setMaxMessageSize(long maxMessageSize) {
-        this.maxMessageSize = maxMessageSize;
-        return this;
-    }
-    
-    /**
-     * Get the number of days to retain messages in the cache
-     * A value of -1 means no expiration
-     */
-    public int getRetentionDays() {
-        return retentionDays;
-    }
-    
-    /**
-     * Set the number of days to retain messages in the cache
-     * A value of -1 means no expiration
-     * 
-     * @param retentionDays The number of days
-     * @return this configuration instance for chaining
-     */
-    public CacheConfiguration setRetentionDays(int retentionDays) {
-        this.retentionDays = retentionDays;
-        return this;
-    }
+
+
     
     /**
      * Whether to compress cached messages
