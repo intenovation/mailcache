@@ -327,7 +327,7 @@ public class CachedFolder extends Folder {
         this.mode = mode;
 
         // For non-OFFLINE modes, open IMAP folder
-        if (cachedStore.getMode() != CacheMode.OFFLINE && imapFolder != null) {
+        if (cachedStore.getMode() != CacheMode.OFFLINE && imapFolder != null && imapFolder.getMessageCount()>0) {
             imapFolder.open(mode);
         }
 
@@ -339,10 +339,13 @@ public class CachedFolder extends Folder {
         if (!isOpen) {
             throw new IllegalStateException("Folder is not open");
         }
-
-        // For non-OFFLINE modes, close IMAP folder
-        if (cachedStore.getMode() != CacheMode.OFFLINE && imapFolder != null) {
-            imapFolder.close(expunge);
+        try {
+            // For non-OFFLINE modes, close IMAP folder
+            if (cachedStore.getMode() != CacheMode.OFFLINE && imapFolder != null&&imapFolder.isOpen()) {
+                imapFolder.close(expunge);
+            }
+        }catch (Exception e){
+            e.printStackTrace();
         }
 
         isOpen = false;
