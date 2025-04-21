@@ -849,39 +849,7 @@ public class CachedFolder extends Folder {
         }
     }
 
-    /**
-     * Sanitize and format a message directory name for safe filesystem storage
-     * Format: YYYY-MM-DD_Subject
-     */
-    private String formatMessageDirName(Message message) throws MessagingException {
-        SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd");
-        String prefix = "";
 
-        // Get date
-        Date sentDate = message.getSentDate();
-        if (sentDate != null) {
-            prefix = dateFormat.format(sentDate) + "_";
-        } else {
-            // Use current date if no sent date
-            prefix = dateFormat.format(new Date()) + "_";
-        }
-
-        // Get subject
-        String subject = message.getSubject();
-        if (subject == null || subject.isEmpty()) {
-            subject = "NoSubject_" + System.currentTimeMillis();
-        }
-
-        // Sanitize subject for file system
-        String sanitizedSubject = subject.replaceAll("[\\\\/:*?\"<>|]", "_");
-
-        // Limit length to avoid too long file names
-        if (sanitizedSubject.length() > 100) {
-            sanitizedSubject = sanitizedSubject.substring(0, 100);
-        }
-
-        return prefix + sanitizedSubject;
-    }
 
     /**
      * Move messages between folders. Will perform the move on the server first,

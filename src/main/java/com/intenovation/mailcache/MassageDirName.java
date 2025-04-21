@@ -2,6 +2,7 @@ package com.intenovation.mailcache;
 
 import javax.mail.Message;
 import javax.mail.MessagingException;
+import java.text.SimpleDateFormat;
 import java.util.Date;
 
 public class MassageDirName {
@@ -10,7 +11,7 @@ public class MassageDirName {
      * Format: YYYY-MM-DD_Subject
      */
     public static String formatMessageDirName(Message message) throws MessagingException {
-        java.text.SimpleDateFormat dateFormat = new java.text.SimpleDateFormat("yyyy-MM-dd");
+        SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd");
         String prefix = "";
 
         // Get date
