@@ -162,7 +162,7 @@ public class CachedStore extends Store {
      * Get the default folder
      */
     @Override
-    public Folder getDefaultFolder() throws MessagingException {
+    public CachedFolder getDefaultFolder() throws MessagingException {
         if (!connected) {
             throw new IllegalStateException("Store not connected");
         }
@@ -174,7 +174,7 @@ public class CachedStore extends Store {
      * Get a folder by name
      */
     @Override
-    public Folder getFolder(String name) throws MessagingException {
+    public CachedFolder getFolder(String name) throws MessagingException {
         if (!connected) {
             throw new IllegalStateException("Store not connected");
         }
@@ -186,7 +186,7 @@ public class CachedStore extends Store {
      * Get a folder by URLName
      */
     @Override
-    public Folder getFolder(URLName url) throws MessagingException {
+    public CachedFolder getFolder(URLName url) throws MessagingException {
         return getFolder(url.getFile());
     }
 

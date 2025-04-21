@@ -85,7 +85,7 @@ public class CachedFolder extends Folder {
     }
 
     @Override
-    public Folder getParent() throws MessagingException {
+    public CachedFolder getParent() throws MessagingException {
         int lastSlash = folderName.lastIndexOf('/');
         if (lastSlash == -1) {
             return cachedStore.getDefaultFolder();
