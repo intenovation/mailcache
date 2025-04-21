@@ -117,7 +117,7 @@ public class CachedFolder extends Folder {
     }
 
     @Override
-    public Folder[] list(String pattern) throws MessagingException {
+    public CachedFolder[] list(String pattern) throws MessagingException {
         List<Folder> folders = new ArrayList<>();
 
         // For OFFLINE mode or when caching, list from cache
@@ -155,16 +155,16 @@ public class CachedFolder extends Folder {
             }
         }
 
-        return folders.toArray(new Folder[0]);
+        return folders.toArray(new CachedFolder[0]);
     }
 
     @Override
-    public Folder[] list() throws MessagingException {
+    public CachedFolder[] list() throws MessagingException {
         return list("%");
     }
 
     @Override
-    public Folder getFolder(String name) throws MessagingException {
+    public CachedFolder getFolder(String name) throws MessagingException {
         // Build the full name
         String fullName = folderName.isEmpty() ? name : folderName + "/" + name;
         return new CachedFolder(cachedStore, fullName, true);
@@ -372,7 +372,7 @@ public class CachedFolder extends Folder {
     }
 
     @Override
-    public Message[] getMessages(int start, int end) throws MessagingException {
+    public CachedMessage[] getMessages(int start, int end) throws MessagingException {
         checkOpen();
 
         // For ONLINE mode with search, get from IMAP
@@ -390,7 +390,7 @@ public class CachedFolder extends Folder {
         }
 
         // For other modes, get from local cache
-        List<Message> messages = new ArrayList<>();
+        List<CachedMessage> messages = new ArrayList<>();
 
         if (cacheDir != null) {
             File messagesDir = new File(cacheDir, "messages");
@@ -422,11 +422,11 @@ public class CachedFolder extends Folder {
             }
         }
 
-        return messages.toArray(new Message[0]);
+        return messages.toArray(new CachedMessage[0]);
     }
 
     @Override
-    public Message[] getMessages() throws MessagingException {
+    public CachedMessage[] getMessages() throws MessagingException {
         checkOpen();
 
         // For ONLINE mode, get from IMAP
@@ -444,7 +444,7 @@ public class CachedFolder extends Folder {
         }
 
         // For other modes, get from local cache
-        List<Message> messages = new ArrayList<>();
+        List<CachedMessage> messages = new ArrayList<>();
 
         if (cacheDir != null) {
             File messagesDir = new File(cacheDir, "messages");
@@ -466,7 +466,7 @@ public class CachedFolder extends Folder {
             }
         }
 
-        return messages.toArray(new Message[0]);
+        return messages.toArray(new CachedMessage[0]);
     }
 
     @Override
@@ -498,7 +498,7 @@ public class CachedFolder extends Folder {
     }
 
     @Override
-    public Message getMessage(int msgnum) throws MessagingException {
+    public CachedMessage getMessage(int msgnum) throws MessagingException {
         checkOpen();
 
         // For ONLINE mode, get from IMAP
@@ -675,6 +675,7 @@ public class CachedFolder extends Folder {
     @Override
     public Message[] expunge() throws MessagingException {
         // Only allow expunge in DESTRUCTIVE mode
+        // we can not return CachedMessage because this came from imap
         if (cachedStore.getMode() != CacheMode.DESTRUCTIVE) {
             throw new MessagingException("Cannot expunge messages unless in DESTRUCTIVE mode");
         }
@@ -712,11 +713,11 @@ public class CachedFolder extends Folder {
             }
         }
 
-        return expunged != null ? expunged : new Message[0];
+        return expunged != null ? expunged : new CachedMessage[0];
     }
 
 
-    public Message[] search(SearchTerm term) throws MessagingException {
+    public CachedMessage[] search(SearchTerm term) throws MessagingException {
         checkOpen();
 
         // For ONLINE mode, search on server
@@ -725,28 +726,28 @@ public class CachedFolder extends Folder {
                 Message[] serverResults = imapFolder.search(term);
 
                 // Create cached versions of the server results
-                List<Message> cachedResults = new ArrayList<>();
+                List<CachedMessage> cachedResults = new ArrayList<>();
                 for (Message msg : serverResults) {
                     cachedResults.add(new CachedMessage(this, msg));
                 }
 
-                return cachedResults.toArray(new Message[0]);
+                return cachedResults.toArray(new CachedMessage[0]);
             } catch (MessagingException e) {
                 LOGGER.log(Level.WARNING, "Error searching on server, falling back to local cache", e);
             }
         }
 
         // For other modes or if server search fails, search in local cache
-        Message[] messages = getMessages();
-        List<Message> results = new ArrayList<>();
+        CachedMessage[] messages = getMessages();
+        List<CachedMessage> results = new ArrayList<>();
 
-        for (Message msg : messages) {
+        for (CachedMessage msg : messages) {
             if (term.match(msg)) {
                 results.add(msg);
             }
         }
 
-        return results.toArray(new Message[0]);
+        return results.toArray(new CachedMessage[0]);
     }
 
     /**
