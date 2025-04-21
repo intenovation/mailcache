@@ -327,7 +327,7 @@ public class CachedFolder extends Folder {
         this.mode = mode;
 
         // For non-OFFLINE modes, open IMAP folder
-        if (cachedStore.getMode() != CacheMode.OFFLINE && imapFolder != null && imapFolder.getMessageCount()>0) {
+        if (cachedStore.getMode() != CacheMode.OFFLINE && imapFolder != null ) {
             imapFolder.open(mode);
         }
 
