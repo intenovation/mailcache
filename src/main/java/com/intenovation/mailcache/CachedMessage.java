@@ -65,9 +65,13 @@ public class CachedMessage extends MimeMessage {
     private String replyTo;
 
     /**
-     * Create a new CachedMessage from an IMAP message
-     */
-    public CachedMessage(CachedFolder folder, Message imapMessage)
+    * Create a new CachedMessage from an IMAP message
+    *
+    * @param folder The folder containing this message
+    * @param imapMessage The IMAP message to cache
+    * @param overwrite Whether to overwrite existing cache if it exists
+    */
+    public CachedMessage(CachedFolder folder, Message imapMessage, boolean overwrite)
             throws MessagingException {
         super(((CachedStore)folder.getStore()).getSession());
         this.folder = folder;
@@ -85,12 +89,38 @@ public class CachedMessage extends MimeMessage {
         String dirName = MassageDirName.formatMessageDirName(imapMessage);
 
         this.messageDir = new File(messagesDir, dirName);
+
+        // If the directory exists and we're overwriting, delete it first
+        if (overwrite && this.messageDir.exists()) {
+            // Delete the directory contents recursively
+            deleteRecursive(this.messageDir);
+        }
+
         if (!this.messageDir.exists()) {
             this.messageDir.mkdirs();
-
-            // Save to cache
-            saveToCache();
         }
+
+        // Save to cache
+        saveToCache();
+    }
+
+    // Keep the original constructor for backward compatibility
+    public CachedMessage(CachedFolder folder, Message imapMessage)
+            throws MessagingException {
+        this(folder, imapMessage, false);
+    }
+
+    // Helper method to recursively delete a directory
+    private boolean deleteRecursive(File dir) {
+        if (dir.isDirectory()) {
+            File[] files = dir.listFiles();
+            if (files != null) {
+                for (File file : files) {
+                    deleteRecursive(file);
+                }
+            }
+        }
+        return dir.delete();
     }
 
     /**
@@ -703,7 +733,11 @@ public class CachedMessage extends MimeMessage {
     }
 
     private boolean isOnline(CachedStore store) {
-        return imapMessage != null && (store.getMode() == CacheMode.ONLINE || store.getMode() == CacheMode.DESTRUCTIVE);
+        return imapMessage != null && (
+                store.getMode() == CacheMode.ONLINE ||
+                        store.getMode() == CacheMode.REFRESH ||
+                        store.getMode() == CacheMode.DESTRUCTIVE
+        );
     }
 
     @Override

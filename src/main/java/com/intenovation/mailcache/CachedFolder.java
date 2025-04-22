@@ -375,6 +375,21 @@ public class CachedFolder extends Folder {
     public CachedMessage[] getMessages(int start, int end) throws MessagingException {
         checkOpen();
 
+        // For REFRESH mode, always get from IMAP
+        if (cachedStore.getMode() == CacheMode.REFRESH && imapFolder != null && imapFolder.isOpen()) {
+            // Get from IMAP
+            Message[] imapMessages = imapFolder.getMessages(start, end);
+
+            // Create cached versions, overwriting existing ones
+            CachedMessage[] cachedMessages = new CachedMessage[imapMessages.length];
+            for (int i = 0; i < imapMessages.length; i++) {
+                cachedMessages[i] = new CachedMessage(this, imapMessages[i], true); // Add overwrite flag
+            }
+
+            return cachedMessages;
+        }
+
+
         // For ONLINE mode with search, get from IMAP
         if (cachedStore.getMode() == CacheMode.ONLINE && imapFolder != null && imapFolder.isOpen()) {
             // Get from IMAP
@@ -428,6 +443,20 @@ public class CachedFolder extends Folder {
     @Override
     public CachedMessage[] getMessages() throws MessagingException {
         checkOpen();
+
+        // For REFRESH mode, always get from IMAP
+        if (cachedStore.getMode() == CacheMode.REFRESH && imapFolder != null && imapFolder.isOpen()) {
+            // Get from IMAP
+            Message[] imapMessages = imapFolder.getMessages();
+
+            // Create cached versions, overwriting existing ones
+            CachedMessage[] cachedMessages = new CachedMessage[imapMessages.length];
+            for (int i = 0; i < imapMessages.length; i++) {
+                cachedMessages[i] = new CachedMessage(this, imapMessages[i], true); // Add overwrite flag
+            }
+
+            return cachedMessages;
+        }
 
         // For ONLINE mode, get from IMAP
         if (cachedStore.getMode() == CacheMode.ONLINE && imapFolder != null && imapFolder.isOpen()) {
@@ -500,6 +529,15 @@ public class CachedFolder extends Folder {
     @Override
     public CachedMessage getMessage(int msgnum) throws MessagingException {
         checkOpen();
+
+        // For REFRESH mode, always get from IMAP
+        if (cachedStore.getMode() == CacheMode.REFRESH && imapFolder != null && imapFolder.isOpen()) {
+            // Get from IMAP
+            Message imapMessage = imapFolder.getMessage(msgnum);
+
+            // Create cached version, overwriting existing one
+            return new CachedMessage(this, imapMessage, true); // Add overwrite flag
+        }
 
         // For ONLINE mode, get from IMAP
         if (cachedStore.getMode() == CacheMode.ONLINE && imapFolder != null && imapFolder.isOpen()) {

@@ -31,6 +31,15 @@ The `CacheMode` enum defines four distinct operation modes for the mail cache sy
     - Throws `MessagingException` when attempting to expunge messages
     - Throws `MessagingException` when server operations fail (no fallback)
 
+### REFRESH
+- **Description**: Always gets latest from server and overwrites cache, writing happens both locally and on server.
+- **Use Case**: When you need to ensure latest server data or when cache format has changed.
+- **Exceptions**:
+  - Throws `MessagingException` when attempting to delete messages
+  - Throws `MessagingException` when attempting to delete folders
+  - Throws `MessagingException` when attempting to expunge messages
+  - Throws `MessagingException` when server operations fail (no fallback)
+
 ### DESTRUCTIVE
 - **Description**: The only mode that allows deleting messages and folders (with local archiving).
 - **Use Case**: Administrative operations requiring deletion capabilities.
@@ -39,20 +48,20 @@ The `CacheMode` enum defines four distinct operation modes for the mail cache sy
     - Behaves like ONLINE mode for all other operations
 
 ## Operation Matrix
+| Operation              | OFFLINE | ACCELERATED                        | ONLINE                 | REFRESH                | DESTRUCTIVE |
+|------------------------|---------|------------------------------------|-----------------------|-----------------------|-------------|
+| **Reading messages**   | Local cache only | Local cache, then server   | Local cache, then server | Always server, update cache | Same as ONLINE |
+| **Searching**          | Local cache only | Local cache only           | Server                | Server                | Server |
+| **Flagging messages**  | Exception | Server then cache                | Server then cache     | Server then cache     | Server then cache |
+| **Creating folders**   | Exception | Server then cache                | Server then cache     | Server then cache     | Server then cache |
+| **Appending messages** | Exception | Server then cache                | Server then cache     | Server then cache     | Server then cache |
+| **Moving messages**    | Exception | Server then cache                | Server then cache     | Server then cache     | Server then cache |
+| **Renaming folders**   | Exception | Server then cache                | Server then cache     | Server then cache     | Server then cache |
+| **Deleting messages**  | Exception | Exception                        | Exception             | Exception             | Allowed (with local archiving) |
+| **Deleting folders**   | Exception | Exception                        | Exception             | Exception             | Allowed (with local archiving) |
+| **Expunging messages** | Exception | Exception                        | Exception             | Exception             | Allowed (with local archiving) |
+| **exists folder**      | Local cache only | creates folder if exists only remotely | creates folder if exists only remotely | creates folder if exists only remotely | Same as ONLINE |
 
-| Operation              | OFFLINE | ACCELERATED                            | ONLINE | DESTRUCTIVE |
-|------------------------|---------|----------------------------------------|--------|-------------|
-| **Reading messages**   | Local cache only | Local cache, then server               | Local cache, then server | Same as ONLINE |
-| **Searching**          | Local cache only | Local cache only                       | Server | Server |
-| **Flagging messages**  | Exception | Server then cache                      | Server then cache | Server then cache |
-| **Creating folders**   | Exception | Server then cache                      | Server then cache | Server then cache |
-| **Appending messages** | Exception | Server then cache                      | Server then cache | Server then cache |
-| **Moving messages**    | Exception | Server then cache                      | Server then cache | Server then cache |
-| **Renaming folders**   | Exception | Server then cache                      | Server then cache | Server then cache |
-| **Deleting messages**  | Exception | Exception                              | Exception | Allowed (with local archiving) |
-| **Deleting folders**   | Exception | Exception                              | Exception | Allowed (with local archiving) |
-| **Expunging messages** | Exception | Exception                              | Exception | Allowed (with local archiving) |
-| **exists folder**      | Local cache only | creates folder if exists only remotely | creates folder if exists only remotely | Same as ONLINE |
 
 ## Key Implementation Details
 
