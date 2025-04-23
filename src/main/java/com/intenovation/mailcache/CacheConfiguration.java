@@ -7,7 +7,6 @@ public class CacheConfiguration {
     private boolean cacheAttachments = true;
     private boolean compressMessages = false;
     private boolean indexContent = true;
-    private long maxCacheSize = -1; // No limit by default
     private boolean syncFlags = true;
     
     /**
@@ -71,26 +70,6 @@ public class CacheConfiguration {
      */
     public CacheConfiguration setIndexContent(boolean indexContent) {
         this.indexContent = indexContent;
-        return this;
-    }
-    
-    /**
-     * Get the maximum cache size (in bytes)
-     * A value of -1 means no limit
-     */
-    public long getMaxCacheSize() {
-        return maxCacheSize;
-    }
-    
-    /**
-     * Set the maximum cache size (in bytes)
-     * A value of -1 means no limit
-     * 
-     * @param maxCacheSize The maximum size in bytes
-     * @return this configuration instance for chaining
-     */
-    public CacheConfiguration setMaxCacheSize(long maxCacheSize) {
-        this.maxCacheSize = maxCacheSize;
         return this;
     }
     
