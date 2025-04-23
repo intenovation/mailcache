@@ -3,12 +3,14 @@ package com.intenovation.mailcache;
 import javax.mail.*;
 import java.io.File;
 import java.util.Properties;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
  * A JavaMail Store implementation that provides caching capabilities
- * with three distinct operation modes.
+ * with distinct operation modes and change notification.
  */
 public class CachedStore extends Store {
     private static final Logger LOGGER = Logger.getLogger(CachedStore.class.getName());
@@ -18,6 +20,9 @@ public class CachedStore extends Store {
     private CacheMode mode;
     private boolean connected = false;
     private CacheConfiguration config;
+
+    // Listener support
+    private final List<MailCacheChangeListener> listeners = new CopyOnWriteArrayList<>();
 
     /**
      * Creates a new CachedStore with the specified session
@@ -45,6 +50,36 @@ public class CachedStore extends Store {
 
         // Initialize default configuration
         this.config = new CacheConfiguration();
+    }
+
+    /**
+     * Add a listener to be notified of changes
+     * @param listener The listener to add
+     */
+    public void addChangeListener(MailCacheChangeListener listener) {
+        listeners.add(listener);
+    }
+
+    /**
+     * Remove a change listener
+     * @param listener The listener to remove
+     */
+    public void removeChangeListener(MailCacheChangeListener listener) {
+        listeners.remove(listener);
+    }
+
+    /**
+     * Notify all listeners of a change
+     * @param event The change event
+     */
+    protected void fireChangeEvent(MailCacheChangeEvent event) {
+        for (MailCacheChangeListener listener : listeners) {
+            try {
+                listener.mailCacheChanged(event);
+            } catch (Exception e) {
+                LOGGER.log(Level.WARNING, "Error notifying listener", e);
+            }
+        }
     }
 
     /**
@@ -79,6 +114,9 @@ public class CachedStore extends Store {
 
         // For OFFLINE mode, we're done
         if (mode == CacheMode.OFFLINE) {
+            // Notify listeners
+            fireChangeEvent(new MailCacheChangeEvent(this,
+                    MailCacheChangeEvent.ChangeType.STORE_OPENED, null));
             return true;
         }
 
@@ -107,10 +145,6 @@ public class CachedStore extends Store {
             }
         }
 
-        //if (imapUser == null || imapUser.isEmpty()) {
-         //   imapUser = session.getProperty("mail.imaps.user");
-        //}
-
         if (imapPassword == null || imapPassword.isEmpty()) {
             imapUser = session.getProperty("mail.imaps.user");
             imapPassword = session.getProperty("mail.imaps.password");
@@ -129,6 +163,9 @@ public class CachedStore extends Store {
             if (mode == CacheMode.ACCELERATED) {
                 // In ACCELERATED mode, we can continue with local cache
                 LOGGER.log(Level.WARNING, "Missing IMAP parameters. Operating in cache-only mode.");
+                // Notify listeners
+                fireChangeEvent(new MailCacheChangeEvent(this,
+                        MailCacheChangeEvent.ChangeType.STORE_OPENED, null));
                 return true;
             } else {
                 // In ONLINE or DESTRUCTIVE mode, connection is required
@@ -142,6 +179,10 @@ public class CachedStore extends Store {
             // Get the appropriate store based on SSL setting
             imapStore = session.getStore(useSSL ? "imaps" : "imap");
             imapStore.connect(imapHost, imapPort, imapUser, imapPassword);
+
+            // Notify listeners
+            fireChangeEvent(new MailCacheChangeEvent(this,
+                    MailCacheChangeEvent.ChangeType.STORE_OPENED, null));
             return true;
         } catch (MessagingException e) {
             // If we're in ACCELERATED mode, we can continue with local cache
@@ -149,6 +190,10 @@ public class CachedStore extends Store {
                 // Log a warning but continue
                 LOGGER.log(Level.WARNING, "Could not connect to IMAP server. " +
                         "Operating in cache-only mode.", e);
+
+                // Notify listeners
+                fireChangeEvent(new MailCacheChangeEvent(this,
+                        MailCacheChangeEvent.ChangeType.STORE_OPENED, null));
                 return true;
             } else {
                 // In ONLINE mode, connection is required
@@ -167,7 +212,10 @@ public class CachedStore extends Store {
             throw new IllegalStateException("Store not connected");
         }
 
-        return new CachedFolder(this, "", true);
+        CachedFolder folder = new CachedFolder(this, "", true);
+        // Register for folder changes
+        folder.addChangeListener(event -> fireChangeEvent(event));
+        return folder;
     }
 
     /**
@@ -179,7 +227,10 @@ public class CachedStore extends Store {
             throw new IllegalStateException("Store not connected");
         }
 
-        return new CachedFolder(this, name, false);
+        CachedFolder folder = new CachedFolder(this, name, false);
+        // Register for folder changes
+        folder.addChangeListener(event -> fireChangeEvent(event));
+        return folder;
     }
 
     /**
@@ -201,7 +252,14 @@ public class CachedStore extends Store {
      * Set the operation mode
      */
     public void setMode(CacheMode mode) {
+        CacheMode oldMode = this.mode;
         this.mode = mode;
+
+        // Notify listeners of the mode change
+        if (oldMode != mode) {
+            fireChangeEvent(new MailCacheChangeEvent(this,
+                    MailCacheChangeEvent.ChangeType.CACHE_MODE_CHANGED, mode));
+        }
     }
 
     /**
@@ -236,5 +294,9 @@ public class CachedStore extends Store {
             imapStore.close();
         }
         connected = false;
+
+        // Notify listeners
+        fireChangeEvent(new MailCacheChangeEvent(this,
+                MailCacheChangeEvent.ChangeType.STORE_CLOSED, null));
     }
 }

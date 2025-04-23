@@ -1,20 +1,24 @@
 package com.intenovation.mailcache;
 
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.text.PDFTextStripper;
+import org.jsoup.Jsoup;
+
 import javax.mail.*;
 import javax.mail.internet.InternetAddress;
 import javax.mail.internet.MimeMessage;
 import java.io.*;
 import java.util.Date;
 import java.util.Properties;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.nio.charset.StandardCharsets;
-import org.jsoup.Jsoup;
-import org.apache.pdfbox.pdmodel.PDDocument;
-import org.apache.pdfbox.text.PDFTextStripper;
 
 /**
  * A JavaMail Message implementation that supports caching
+ * and notifies listeners of changes.
  */
 public class CachedMessage extends MimeMessage {
     private static final Logger LOGGER = Logger.getLogger(CachedMessage.class.getName());
@@ -64,6 +68,36 @@ public class CachedMessage extends MimeMessage {
     private String[] cc;
     private String replyTo;
 
+    // Listener support
+    private final List<MailCacheChangeListener> listeners = new CopyOnWriteArrayList<>();
+
+    /**
+     * Add a change listener to this message
+     */
+    public void addChangeListener(MailCacheChangeListener listener) {
+        listeners.add(listener);
+    }
+
+    /**
+     * Remove a change listener from this message
+     */
+    public void removeChangeListener(MailCacheChangeListener listener) {
+        listeners.remove(listener);
+    }
+
+    /**
+     * Fire a change event to all listeners
+     */
+    protected void fireChangeEvent(MailCacheChangeEvent event) {
+        for (MailCacheChangeListener listener : listeners) {
+            try {
+                listener.mailCacheChanged(event);
+            } catch (Exception e) {
+                LOGGER.log(Level.WARNING, "Error notifying listener", e);
+            }
+        }
+    }
+
     /**
     * Create a new CachedMessage from an IMAP message
     *
@@ -102,6 +136,10 @@ public class CachedMessage extends MimeMessage {
 
         // Save to cache
         saveToCache();
+
+        // Notify listeners
+        fireChangeEvent(new MailCacheChangeEvent(this,
+                MailCacheChangeEvent.ChangeType.MESSAGE_ADDED, this));
     }
 
     // Keep the original constructor for backward compatibility
@@ -529,6 +567,9 @@ public class CachedMessage extends MimeMessage {
                             }
                         }
                     }
+                    // Notify listeners
+                    fireChangeEvent(new MailCacheChangeEvent(this,
+                            MailCacheChangeEvent.ChangeType.MESSAGE_ADDED, this));
                 }
 
                 // Now save both formats if found
@@ -794,6 +835,9 @@ public class CachedMessage extends MimeMessage {
             return textContent;
         }
 
+        // Notify listeners
+        fireChangeEvent(new MailCacheChangeEvent(this,
+                MailCacheChangeEvent.ChangeType.MESSAGE_ADDED, this));
         return "";
     }
 
@@ -1147,6 +1191,11 @@ public class CachedMessage extends MimeMessage {
                         writer.write("USER:" + userFlag + "\n");
                     }
                 }
+
+                // Notify listeners of the change
+                fireChangeEvent(new MailCacheChangeEvent(this,
+                        MailCacheChangeEvent.ChangeType.MESSAGE_UPDATED, this));
+
             } catch (IOException e) {
                 LOGGER.log(Level.WARNING, "Error updating flags in cache", e);
             }

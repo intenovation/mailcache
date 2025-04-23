@@ -4,17 +4,16 @@ import javax.mail.*;
 import javax.mail.internet.MimeMessage;
 import javax.mail.search.SearchTerm;
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Date;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
  * A JavaMail Folder implementation that supports the cache modes
+ * and change notification pattern.
  */
 public class CachedFolder extends Folder {
     private static final Logger LOGGER = Logger.getLogger(CachedFolder.class.getName());
@@ -25,6 +24,9 @@ public class CachedFolder extends Folder {
     private String folderName;
     private boolean isOpen = false;
     private int mode = -1;
+
+    // Listener support
+    private final List<MailCacheChangeListener> listeners = new CopyOnWriteArrayList<>();
 
     /**
      * Create a new CachedFolder
@@ -37,6 +39,7 @@ public class CachedFolder extends Folder {
             this.cacheDir = new File(store.getCacheDirectory(),
                     name.replace('/', File.separatorChar));
         }
+
         // Create cache directory for this folder
         if (createDirectory && store.getCacheDirectory() != null) {
             if (!this.cacheDir.exists()) {
@@ -63,6 +66,33 @@ public class CachedFolder extends Folder {
             } catch (MessagingException e) {
                 // Log exception but continue
                 LOGGER.log(Level.WARNING, "Could not get IMAP folder: " + e.getMessage(), e);
+            }
+        }
+    }
+
+    /**
+     * Add a change listener to this folder
+     */
+    public void addChangeListener(MailCacheChangeListener listener) {
+        listeners.add(listener);
+    }
+
+    /**
+     * Remove a change listener from this folder
+     */
+    public void removeChangeListener(MailCacheChangeListener listener) {
+        listeners.remove(listener);
+    }
+
+    /**
+     * Fire a change event to all listeners
+     */
+    protected void fireChangeEvent(MailCacheChangeEvent event) {
+        for (MailCacheChangeListener listener : listeners) {
+            try {
+                listener.mailCacheChanged(event);
+            } catch (Exception e) {
+                LOGGER.log(Level.WARNING, "Error notifying listener", e);
             }
         }
     }
@@ -104,8 +134,8 @@ public class CachedFolder extends Folder {
 
         // For ONLINE and other non-OFFLINE modes, also check IMAP
         if (cachedStore.getMode() != CacheMode.OFFLINE && imapFolder != null) {
-            boolean imapFolderExists=imapFolder.exists();
-            if (imapFolderExists){
+            boolean imapFolderExists = imapFolder.exists();
+            if (imapFolderExists) {
                 //exists remotely, so this is not synched. We do not have to create it remotely,
                 //let us create it locally, fix the synch problem
                 this.createLocally();
@@ -130,7 +160,10 @@ public class CachedFolder extends Folder {
                         String childName = folderName.isEmpty() ?
                                 subdir.getName() :
                                 folderName + "/" + subdir.getName();
-                        folders.add(new CachedFolder(cachedStore, childName, false));
+                        CachedFolder folder = new CachedFolder(cachedStore, childName, false);
+                        // Add change listener to propagate events
+                        folder.addChangeListener(event -> fireChangeEvent(event));
+                        folders.add(folder);
                     }
                 }
             }
@@ -150,7 +183,10 @@ public class CachedFolder extends Folder {
                 }
 
                 if (!found) {
-                    folders.add(new CachedFolder(cachedStore, folder.getFullName(), true));
+                    CachedFolder cachedFolder = new CachedFolder(cachedStore, folder.getFullName(), true);
+                    // Add change listener to propagate events
+                    cachedFolder.addChangeListener(event -> fireChangeEvent(event));
+                    folders.add(cachedFolder);
                 }
             }
         }
@@ -167,9 +203,11 @@ public class CachedFolder extends Folder {
     public CachedFolder getFolder(String name) throws MessagingException {
         // Build the full name
         String fullName = folderName.isEmpty() ? name : folderName + "/" + name;
-        return new CachedFolder(cachedStore, fullName, true);
+        CachedFolder folder = new CachedFolder(cachedStore, fullName, true);
+        // Add change listener to propagate events
+        folder.addChangeListener(event -> fireChangeEvent(event));
+        return folder;
     }
-
 
     @Override
     public char getSeparator() throws MessagingException {
@@ -225,6 +263,10 @@ public class CachedFolder extends Folder {
             if (!archivedDir.exists()) {
                 archivedDir.mkdirs();
             }
+
+            // Notify listeners
+            fireChangeEvent(new MailCacheChangeEvent(this,
+                    MailCacheChangeEvent.ChangeType.FOLDER_ADDED, this));
 
             return true;
         }
@@ -327,11 +369,15 @@ public class CachedFolder extends Folder {
         this.mode = mode;
 
         // For non-OFFLINE modes, open IMAP folder
-        if (cachedStore.getMode() != CacheMode.OFFLINE && imapFolder != null ) {
+        if (cachedStore.getMode() != CacheMode.OFFLINE && imapFolder != null) {
             imapFolder.open(mode);
         }
 
         isOpen = true;
+
+        // Notify listeners
+        fireChangeEvent(new MailCacheChangeEvent(this,
+                MailCacheChangeEvent.ChangeType.FOLDER_UPDATED, this));
     }
 
     @Override
@@ -341,17 +387,20 @@ public class CachedFolder extends Folder {
         }
         try {
             // For non-OFFLINE modes, close IMAP folder
-            if (cachedStore.getMode() != CacheMode.OFFLINE && imapFolder != null&&imapFolder.isOpen()) {
+            if (cachedStore.getMode() != CacheMode.OFFLINE && imapFolder != null && imapFolder.isOpen()) {
                 imapFolder.close(expunge);
             }
-        }catch (Exception e){
+        } catch (Exception e) {
             e.printStackTrace();
         }
 
         isOpen = false;
         this.mode = -1;
-    }
 
+        // Notify listeners
+        fireChangeEvent(new MailCacheChangeEvent(this,
+                MailCacheChangeEvent.ChangeType.FOLDER_UPDATED, this));
+    }
     @Override
     public boolean isOpen() {
         return isOpen;
@@ -486,7 +535,10 @@ public class CachedFolder extends Folder {
 
                     for (File messageDir : messageDirs) {
                         try {
-                            messages.add(new CachedMessage(this, messageDir));
+                            CachedMessage message = new CachedMessage(this, messageDir);
+                            // Add change listener to propagate events
+                            message.addChangeListener(event -> fireChangeEvent(event));
+                            messages.add(message);
                         } catch (MessagingException e) {
                             LOGGER.log(Level.WARNING, "Error loading message: " + e.getMessage(), e);
                         }
