@@ -544,9 +544,9 @@ public class CachedMessage extends MimeMessage {
 
                             // Only save attachments if configured to do so
                             CachedStore store = (CachedStore) folder.getStore();
-                            if (store.getConfig().isCacheAttachments()) {
+
                                 saveAttachment(part);
-                            }
+
                         } else {
                             // This part is likely the message body
                             Object partContent = part.getContent();
@@ -708,7 +708,7 @@ public class CachedMessage extends MimeMessage {
 
         // Only save attachments if configured to do so
         CachedStore store = (CachedStore) folder.getStore();
-        if (store.getConfig().isCacheAttachments()) {
+
             // Save the attachment
             File attachmentFile = new File(attachmentsDir, fileName);
             try (InputStream is = part.getInputStream();
@@ -720,10 +720,7 @@ public class CachedMessage extends MimeMessage {
                     fos.write(buffer, 0, bytesRead);
                 }
             }
-        } else {
-            // Just log that we're skipping the attachment
-            LOGGER.log(Level.FINE, "Skipping attachment " + fileName + " as per configuration");
-        }
+
     }
 
     @Override

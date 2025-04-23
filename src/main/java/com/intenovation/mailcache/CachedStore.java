@@ -19,7 +19,7 @@ public class CachedStore extends Store {
     private File cacheDirectory;
     private CacheMode mode;
     private boolean connected = false;
-    private CacheConfiguration config;
+
 
     // Listener support
     private final List<MailCacheChangeListener> listeners = new CopyOnWriteArrayList<>();
@@ -48,8 +48,6 @@ public class CachedStore extends Store {
             this.mode = CacheMode.ACCELERATED; // Default to accelerated mode
         }
 
-        // Initialize default configuration
-        this.config = new CacheConfiguration();
     }
 
     /**
@@ -82,21 +80,8 @@ public class CachedStore extends Store {
         }
     }
 
-    /**
-     * Get the cache configuration
-     */
-    public CacheConfiguration getConfig() {
-        return config;
-    }
 
-    /**
-     * Set the cache configuration
-     *
-     * @param config The configuration to use
-     */
-    public void setConfig(CacheConfiguration config) {
-        this.config = config;
-    }
+
 
     /**
      * Connect to the store with the specified credentials
