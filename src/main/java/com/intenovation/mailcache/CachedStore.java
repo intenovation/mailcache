@@ -97,7 +97,10 @@ public class CachedStore extends Store {
         // Set the connection status for the cache
         connected = true;
 
-        // For OFFLINE mode, we're done
+        // Log what mode we're connecting in
+        LOGGER.info("Connecting in " + mode + " mode");
+
+        // For OFFLINE mode, we're done - no IMAP needed
         if (mode == CacheMode.OFFLINE) {
             // Notify listeners
             fireChangeEvent(new MailCacheChangeEvent(this,
@@ -105,7 +108,7 @@ public class CachedStore extends Store {
             return true;
         }
 
-        // For ONLINE and ACCELERATED modes, get IMAP settings from session properties if not provided
+        // For ONLINE, ACCELERATED, REFRESH and DESTRUCTIVE modes, initialize IMAP
         String imapHost = host;
         int imapPort = port;
         String imapUser = user;
@@ -115,45 +118,66 @@ public class CachedStore extends Store {
         // Override with session properties if available
         if (imapHost == null || imapHost.isEmpty()) {
             imapHost = session.getProperty("mail.imaps.host");
+            // If not found, try non-SSL version
+            if (imapHost == null || imapHost.isEmpty()) {
+                imapHost = session.getProperty("mail.imap.host");
+                useSSL = false;
+            }
         }
 
         if (imapPort <= 0) {
-            String portStr = session.getProperty("mail.imaps.port");
+            String portStr = useSSL ?
+                    session.getProperty("mail.imaps.port") :
+                    session.getProperty("mail.imap.port");
             if (portStr != null && !portStr.isEmpty()) {
                 try {
                     imapPort = Integer.parseInt(portStr);
                 } catch (NumberFormatException e) {
-                    imapPort = 993;  // Default IMAPS port
+                    imapPort = useSSL ? 993 : 143;  // Default IMAPS or IMAP port
                 }
             } else {
-                imapPort = 993;  // Default IMAPS port
+                imapPort = useSSL ? 993 : 143;  // Default IMAPS or IMAP port
             }
         }
 
-        if (imapPassword == null || imapPassword.isEmpty()) {
-            imapUser = session.getProperty("mail.imaps.user");
-            imapPassword = session.getProperty("mail.imaps.password");
+        if (imapUser == null || imapUser.isEmpty()) {
+            imapUser = useSSL ?
+                    session.getProperty("mail.imaps.user") :
+                    session.getProperty("mail.imap.user");
         }
 
-        String sslStr = session.getProperty("mail.imaps.ssl.enable");
-        if (sslStr != null) {
-            useSSL = Boolean.parseBoolean(sslStr);
+        if (imapPassword == null || imapPassword.isEmpty()) {
+            imapPassword = useSSL ?
+                    session.getProperty("mail.imaps.password") :
+                    session.getProperty("mail.imap.password");
         }
+
+        // Log IMAP connection details (except password)
+        LOGGER.info("IMAP connection details - Host: " + imapHost +
+                ", Port: " + imapPort +
+                ", User: " + imapUser +
+                ", SSL: " + useSSL);
 
         // Check if we have all the required parameters
-        if (imapHost == null || imapHost.isEmpty() ||
-                imapUser == null || imapUser.isEmpty() ||
-                imapPassword == null || imapPassword.isEmpty()) {
+        boolean hasImapConfig = imapHost != null && !imapHost.isEmpty() &&
+                imapUser != null && !imapUser.isEmpty() &&
+                imapPassword != null && !imapPassword.isEmpty();
 
+        if (!hasImapConfig) {
+            LOGGER.warning("Missing required IMAP parameters: " +
+                    (imapHost == null || imapHost.isEmpty() ? "Host " : "") +
+                    (imapUser == null || imapUser.isEmpty() ? "User " : "") +
+                    (imapPassword == null || imapPassword.isEmpty() ? "Password" : ""));
+
+            // In ACCELERATED mode, we can continue with local cache
             if (mode == CacheMode.ACCELERATED) {
-                // In ACCELERATED mode, we can continue with local cache
-                LOGGER.log(Level.WARNING, "Missing IMAP parameters. Operating in cache-only mode.");
+                LOGGER.info("Operating in ACCELERATED mode with cache-only (no IMAP connection)");
                 // Notify listeners
                 fireChangeEvent(new MailCacheChangeEvent(this,
                         MailCacheChangeEvent.ChangeType.STORE_OPENED, null));
                 return true;
             } else {
-                // In ONLINE or DESTRUCTIVE mode, connection is required
+                // In other modes, connection is required
                 connected = false;
                 throw new MessagingException("Missing required IMAP connection parameters");
             }
@@ -163,7 +187,10 @@ public class CachedStore extends Store {
         try {
             // Get the appropriate store based on SSL setting
             imapStore = session.getStore(useSSL ? "imaps" : "imap");
+            LOGGER.info("Created IMAP store: " + imapStore.getClass().getName());
+
             imapStore.connect(imapHost, imapPort, imapUser, imapPassword);
+            LOGGER.info("Successfully connected to IMAP server: " + imapHost);
 
             // Notify listeners
             fireChangeEvent(new MailCacheChangeEvent(this,
@@ -176,12 +203,15 @@ public class CachedStore extends Store {
                 LOGGER.log(Level.WARNING, "Could not connect to IMAP server. " +
                         "Operating in cache-only mode.", e);
 
+                // Ensure imapStore is null so we don't attempt to use it
+                imapStore = null;
+
                 // Notify listeners
                 fireChangeEvent(new MailCacheChangeEvent(this,
                         MailCacheChangeEvent.ChangeType.STORE_OPENED, null));
                 return true;
             } else {
-                // In ONLINE mode, connection is required
+                // In other modes, connection is required
                 connected = false;
                 throw e;
             }
@@ -283,5 +313,99 @@ public class CachedStore extends Store {
         // Notify listeners
         fireChangeEvent(new MailCacheChangeEvent(this,
                 MailCacheChangeEvent.ChangeType.STORE_CLOSED, null));
+    }
+    /**
+     * Enhanced IMAP Store debugging utility
+     * Add this to your CachedStore class
+     */
+    public void debugImapConnection() {
+        LOGGER.info("=== IMAP Connection Debug ===");
+        LOGGER.info("Current cache mode: " + getMode());
+
+        // Check if store exists
+        if (imapStore == null) {
+            LOGGER.info("IMAP store is NULL - checking initialization");
+
+            // Check session properties for IMAP configuration
+            Session session = getSession();
+            if (session != null) {
+                LOGGER.info("Session properties related to IMAP:");
+                String[] imapProps = {
+                        "mail.store.protocol",
+                        "mail.imaps.host",
+                        "mail.imaps.port",
+                        "mail.imaps.user",
+                        "mail.imaps.ssl.enable",
+                        "mail.imap.host",
+                        "mail.imap.port",
+                        "mail.imap.user",
+                        "mail.imap.ssl.enable"
+                };
+
+                for (String prop : imapProps) {
+                    String value = session.getProperty(prop);
+                    // Don't log password
+                    LOGGER.info("  " + prop + ": " + (value != null ? value : "not set"));
+                }
+
+                // Check for password property existence (don't log actual value)
+                String imapsPass = session.getProperty("mail.imaps.password");
+                String imapPass = session.getProperty("mail.imap.password");
+                LOGGER.info("  mail.imaps.password: " + (imapsPass != null ? "[SET]" : "not set"));
+                LOGGER.info("  mail.imap.password: " + (imapPass != null ? "[SET]" : "not set"));
+            } else {
+                LOGGER.info("Session is NULL");
+            }
+
+            // Try to initialize the IMAP store
+            LOGGER.info("Attempting to initialize IMAP store...");
+            try {
+                if (session != null) {
+                    String protocol = session.getProperty("mail.store.protocol");
+                    if (protocol == null || protocol.equals("cache")) {
+                        // Try both IMAPS and IMAP
+                        try {
+                            Store store = session.getStore("imaps");
+                            LOGGER.info("Created IMAPS store: " + (store != null));
+                        } catch (Exception e) {
+                            LOGGER.info("Failed to create IMAPS store: " + e.getMessage());
+                        }
+
+                        try {
+                            Store store = session.getStore("imap");
+                            LOGGER.info("Created IMAP store: " + (store != null));
+                        } catch (Exception e) {
+                            LOGGER.info("Failed to create IMAP store: " + e.getMessage());
+                        }
+                    } else {
+                        LOGGER.info("Current protocol is: " + protocol);
+                    }
+                }
+            } catch (Exception e) {
+                LOGGER.info("Error during IMAP store initialization: " + e.getMessage());
+            }
+        } else {
+            // IMAP store exists, check connection
+            LOGGER.info("IMAP store exists, checking connection");
+            LOGGER.info("IMAP store class: " + imapStore.getClass().getName());
+            LOGGER.info("IMAP store is connected: " + imapStore.isConnected());
+
+            try {
+                URLName url = imapStore.getURLName();
+                if (url != null) {
+                    LOGGER.info("IMAP URL: " +
+                            url.getProtocol() + "://" +
+                            url.getUsername() + "@" +
+                            url.getHost() + ":" +
+                            url.getPort());
+                } else {
+                    LOGGER.info("IMAP URL is null");
+                }
+            } catch (Exception e) {
+                LOGGER.info("Error getting IMAP URL: " + e.getMessage());
+            }
+        }
+
+        LOGGER.info("=== End IMAP Connection Debug ===");
     }
 }
