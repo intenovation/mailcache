@@ -94,10 +94,14 @@ public class MailCache {
         }
         Session session = createSession(cacheDir, mode, imapHost, imapPort,
                 username, password, useSSL);
-        store =  (CachedStore) session.getStore();
+        CachedStore newstore =  (CachedStore) session.getStore();
         // Pass all parameters to ensure they're available in protocolConnect
-        store.connect(imapHost, imapPort, username, password);
-        return store;
+        newstore.connect(imapHost, imapPort, username, password);
+        if (newstore.isConnected()) {
+            store = newstore;
+            return store;
+        }
+        return  null;
     }
 
     private static final Provider CACHED_STORE_PROVIDER = new Provider(
