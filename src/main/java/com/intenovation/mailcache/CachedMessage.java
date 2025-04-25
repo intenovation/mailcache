@@ -188,7 +188,7 @@ public class CachedMessage extends MimeMessage {
         }
 
         // If we're in OFFLINE mode, don't try to find the message on the server
-        CachedStore store = (CachedStore)folder.getStore();
+        CachedStore store = folder.getStore();
         if (store.getMode() == CacheMode.OFFLINE) {
             return null;
         }
@@ -196,7 +196,7 @@ public class CachedMessage extends MimeMessage {
         // Try to find the message on the server
         try {
             // Get the folder from the server
-            Folder imapFolder = ((CachedFolder)folder).imapFolder;
+            Folder imapFolder = folder.getImapFolder();
             if (imapFolder == null || !imapFolder.isOpen()) {
                 return null;
             }

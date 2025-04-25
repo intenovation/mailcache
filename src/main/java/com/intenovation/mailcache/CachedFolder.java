@@ -19,7 +19,12 @@ public class CachedFolder extends Folder {
     private static final Logger LOGGER = Logger.getLogger(CachedFolder.class.getName());
 
     private CachedStore cachedStore;
-    public Folder imapFolder;  // IMAP folder corresponding to this cached folder
+
+
+
+
+
+    private Folder imapFolder;  // IMAP folder corresponding to this cached folder
     private File cacheDir;     // Local directory for caching
     private String folderName; // Name of this folder
     private boolean isOpen = false;
@@ -27,6 +32,10 @@ public class CachedFolder extends Folder {
 
     // Listener support
     private final List<MailCacheChangeListener> listeners = new CopyOnWriteArrayList<>();
+
+    public CachedStore getStore() {
+        return cachedStore;
+    }
 
     /**
      * Create a new CachedFolder
@@ -65,18 +74,23 @@ public class CachedFolder extends Folder {
             }
         }
 
-        // For non-OFFLINE modes, get the corresponding IMAP folder
-        if (store.getMode() != CacheMode.OFFLINE && store.getImapStore() != null) {
-            try {
-                this.imapFolder = store.getImapStore().getFolder(name);
-                LOGGER.fine("Initialized IMAP folder: " + name);
-            } catch (MessagingException e) {
-                // Log exception but continue - we'll initialize lazily when needed
-                LOGGER.log(Level.WARNING, "Could not get IMAP folder: " + e.getMessage(), e);
-            }
-        }
+        getImapFolder();
     }
 
+    public Folder getImapFolder() {
+        if (imapFolder==null && cachedStore.getMode() != CacheMode.OFFLINE && cachedStore.getImapStore() != null) {
+                try {
+                    this.imapFolder = cachedStore.getImapStore().getFolder(folderName);
+                    LOGGER.fine("Initialized IMAP folder: " + folderName);
+                } catch (MessagingException e) {
+                    // Log exception but continue - we'll initialize lazily when needed
+                    LOGGER.log(Level.WARNING, "Could not get IMAP folder: " + e.getMessage(), e);
+                }
+
+        }
+        return imapFolder;
+
+    }
     /**
      * Add a change listener to this folder
      *
