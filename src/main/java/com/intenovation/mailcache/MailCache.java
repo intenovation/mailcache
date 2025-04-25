@@ -19,7 +19,7 @@ public class MailCache {
 
      * @return A new Session configured for caching
      */
-    public static Session createOfflineSession(File cacheDir) {
+    private static Session createOfflineSession(File cacheDir) {
         Properties props = new Properties();
         props.setProperty("mail.store.protocol", "cache");
         props.setProperty("mail.cache.directory", cacheDir.getAbsolutePath());
@@ -84,7 +84,7 @@ public class MailCache {
      * @return A connected CachedStore
      * @throws MessagingException If there is an error connecting
      */
-    private static CachedStore openStore(File cacheDir, CacheMode mode,
+    public static CachedStore openStore(File cacheDir, CacheMode mode,
                                         String imapHost, int imapPort,
                                         String username, String password,
                                         boolean useSSL)
