@@ -86,20 +86,6 @@ store.close();
 ### Working with Different Modes
 
 ```java
-// Create a Session with cache configuration
-Session session = MailCache.createSession(
-    cacheDir,
-    CacheMode.ACCELERATED,
-    "imap.example.com",
-    993,
-    "username",
-    "password",
-    true
-);
-
-// Get the store
-CachedStore store = (CachedStore) session.getStore();
-store.connect();
 
 // Switch to OFFLINE mode when needed
 store.setMode(CacheMode.OFFLINE);
@@ -218,32 +204,6 @@ inbox.close(false);
 archive.close(false);
 ```
 
-### Working with Archived Messages
-
-```java
-// Get the cache manager
-CacheManager manager = CacheManager.getInstance(store);
-
-// List archived messages
-String[] archivedMessages = manager.listArchivedMessages("INBOX");
-for (String message : archivedMessages) {
-    System.out.println("Archived message: " + message);
-}
-
-// Restore selected archived messages
-int restoredCount = manager.restoreArchivedMessages("INBOX", 
-    new String[]{"2024-04-09_Important_Invoice"});
-System.out.println("Restored " + restoredCount + " messages");
-```
-
-### Cache Statistics
-
-```java
-// Get cache statistics
-CacheStats stats = CacheManager.getInstance(store).getStatistics();
-System.out.println("Cache size: " + stats.getFormattedTotalSize());
-System.out.println("Message count: " + stats.getMessageCount());
-```
 
 ## Directory Structure
 
