@@ -28,7 +28,7 @@ public class MailCache {
         Session session = Session.getInstance(props);
 
         // Register our provider
-        session.addProvider(CacheProviderFactory.getCachedStoreProvider());
+        session.addProvider(getCachedStoreProvider());
 
         return session;
     }
@@ -45,7 +45,7 @@ public class MailCache {
      * @param useSSL Whether to use SSL for IMAP
      * @return A new Session configured for caching with IMAP
      */
-    public static Session createSession(File cacheDir, CacheMode mode,
+    private static Session createSession(File cacheDir, CacheMode mode,
                                         String imapHost, int imapPort,
                                         String username, String password,
                                         boolean useSSL) {
@@ -64,12 +64,12 @@ public class MailCache {
         Session session = Session.getInstance(props);
 
         // Register our provider
-        session.addProvider(CacheProviderFactory.getCachedStoreProvider());
+        session.addProvider(getCachedStoreProvider());
 
         return session;
     }
 
-
+    private static CachedStore store = null;
 
     /**
      * Open a cached store with IMAP connectivity
@@ -84,20 +84,38 @@ public class MailCache {
      * @return A connected CachedStore
      * @throws MessagingException If there is an error connecting
      */
-    public static CachedStore openStore(File cacheDir, CacheMode mode,
+    private static CachedStore openStore(File cacheDir, CacheMode mode,
                                         String imapHost, int imapPort,
                                         String username, String password,
                                         boolean useSSL)
             throws MessagingException {
+        if (store!= null){
+            return  store;
+        }
         Session session = createSession(cacheDir, mode, imapHost, imapPort,
                 username, password, useSSL);
-        Store store = session.getStore();
+        store =  (CachedStore) session.getStore();
         // Pass all parameters to ensure they're available in protocolConnect
         store.connect(imapHost, imapPort, username, password);
-        return (CachedStore) store;
+        return store;
     }
 
+    private static final Provider CACHED_STORE_PROVIDER = new Provider(
+            Provider.Type.STORE,
+            "cache",
+            CachedStore.class.getName(),
+            "Intenovation",
+            "1.0"
+    );
 
+    /**
+     * Get the provider for the CachedStore
+     *
+     * @return The JavaMail Provider
+     */
+    public static Provider getCachedStoreProvider() {
+        return CACHED_STORE_PROVIDER;
+    }
 
 
 }
