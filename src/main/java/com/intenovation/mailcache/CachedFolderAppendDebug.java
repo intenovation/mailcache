@@ -47,7 +47,7 @@ public class CachedFolderAppendDebug {
         }
         
         // Check IMAP store availability
-        Folder imapFolder = folder.imapFolder;
+        Folder imapFolder = folder.getImapFolder();
         if (imapFolder == null) {
             LOGGER.warning("IMAP folder is null - server operations will fail");
         } else {
@@ -141,7 +141,7 @@ public class CachedFolderAppendDebug {
             
             // Only attempt server operations in non-OFFLINE modes
             if (store.getMode() != CacheMode.OFFLINE) {
-                Folder imapFolder = folder.imapFolder;
+                Folder imapFolder = folder.getImapFolder();
                 
                 if (imapFolder != null && imapFolder.isOpen()) {
                     LOGGER.info("Appending to server...");
@@ -261,7 +261,7 @@ public class CachedFolderAppendDebug {
             // Verify on server for non-OFFLINE modes
             if (store.getMode() != CacheMode.OFFLINE) {
                 LOGGER.info("Verifying messages on server...");
-                Folder imapFolder = folder.imapFolder;
+                Folder imapFolder = folder.getImapFolder();
                 if (imapFolder != null && imapFolder.isOpen()) {
                     Message[] imapMessages = imapFolder.getMessages();
                     LOGGER.info("Found " + imapMessages.length + " messages on server");
@@ -331,7 +331,7 @@ public class CachedFolderAppendDebug {
         }
 
         // For other modes, append to server first
-        if (folder.imapFolder != null && folder.imapFolder.isOpen()) {
+        if (folder.getImapFolder() != null && folder.getImapFolder().isOpen()) {
             try {
                 // Extract or convert IMAP messages for server operation
                 Message[] imapMessages = new Message[messages.length];
@@ -362,7 +362,7 @@ public class CachedFolderAppendDebug {
 
                 // Now append the IMAP messages to the IMAP folder
                 try {
-                    folder.imapFolder.appendMessages(imapMessages);
+                    folder.getImapFolder().appendMessages(imapMessages);
                 } catch (MessagingException e) {
                     LOGGER.log(Level.SEVERE, "Error appending messages to server", e);
                     throw e; // Don't continue if server operation failed

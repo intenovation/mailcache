@@ -195,7 +195,8 @@ public class CachedFolder extends Folder {
                 }
             }
         }
-
+        if ((imapFolder.getType() & HOLDS_MESSAGES) == 0)
+            return true;
         // Open the folder if needed
         if (!imapFolder.isOpen()) {
             LOGGER.info("Opening IMAP folder: " + getFullName() + " in mode: " +
