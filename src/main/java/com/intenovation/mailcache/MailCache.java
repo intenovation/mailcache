@@ -123,4 +123,9 @@ public class MailCache {
     }
 
 
+    public static void closeStore() throws MessagingException {
+        if (store!= null){
+              store.close();
+        }
+    }
 }
