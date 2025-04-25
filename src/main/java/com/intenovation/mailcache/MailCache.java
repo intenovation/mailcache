@@ -70,7 +70,7 @@ public class MailCache {
     }
 
     private static CachedStore store = null;
-
+    private static int configHash = 0;
     /**
      * Open a cached store with IMAP connectivity
      *
@@ -89,7 +89,7 @@ public class MailCache {
                                         String username, String password,
                                         boolean useSSL)
             throws MessagingException {
-        if (store!= null){
+        if (store!= null&& configHash==(imapHost+ imapPort+ username+ password).hashCode()){
             return  store;
         }
         Session session = createSession(cacheDir, mode, imapHost, imapPort,
@@ -99,6 +99,7 @@ public class MailCache {
         newstore.connect(imapHost, imapPort, username, password);
         if (newstore.isConnected()) {
             store = newstore;
+            configHash=(imapHost+ imapPort+ username+ password).hashCode();
             return store;
         }
         return  null;
