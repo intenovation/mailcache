@@ -305,6 +305,7 @@ public class CachedFolder extends Folder {
             } catch (MessagingException e) {
                 LOGGER.log(Level.WARNING, "Error listing IMAP folders: " + e.getMessage(), e);
                 // Continue with results from cache
+                e.printStackTrace();
             }
         }
 
