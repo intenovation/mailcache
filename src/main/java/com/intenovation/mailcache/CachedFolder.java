@@ -73,8 +73,6 @@ public class CachedFolder extends Folder {
                 archivedDir.mkdirs();
             }
         }
-
-        getImapFolder();
     }
 
     /**
@@ -87,6 +85,10 @@ public class CachedFolder extends Folder {
         if (imapFolder == null && !cachedStore.getMode().shouldReadFromServer() &&
                 cachedStore.getImapStore() != null) {
             try {
+                if (!cachedStore.getImapStore().isConnected()) {
+                    LOGGER.log(Level.WARNING, "IMAP Store not connected. ");
+                    cachedStore.getImapStore().connect();
+                }
                 this.imapFolder = cachedStore.getImapStore().getFolder(folderName);
                 LOGGER.fine("Initialized IMAP folder: " + folderName);
             } catch (MessagingException e) {
