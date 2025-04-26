@@ -788,14 +788,14 @@ public class CachedMessage extends MimeMessage {
     }
 
     /**
-     * Handle a cache miss according to the current CacheMode.
-     * If the mode allows reading from server after a cache miss (like in ONLINE mode),
-     * this method will attempt to fetch the message from the server and save it to cache.
+     * Handle a cache miss by attempting to fetch the message from server.
+     * If successful, loads properties and content from the server message.
      *
      * @param methodName The name of the method that had the cache miss, for logging
-     * @return true if the message was found on server, false otherwise
+     * @return true if the message was successfully retrieved and loaded, false otherwise
+     * @throws MessagingException If there is an error loading the message data
      */
-    private boolean handleCacheMiss(String methodName) {
+    private boolean handleCacheMiss(String methodName) throws MessagingException {
         CachedStore store = (CachedStore) folder.getStore();
         CacheMode mode = store.getMode();
 
@@ -807,7 +807,44 @@ public class CachedMessage extends MimeMessage {
             Message msg = getImapMessage();
             if (msg != null) {
                 LOGGER.info("Successfully fetched message from server after cache miss in " + methodName);
-                return true;
+
+                // Store the reference
+                this.imapMessage = msg;
+
+                // Load message properties from the server message
+                try {
+                    // Extract and store key properties
+                    if (this.sentDate == null) {
+                        this.sentDate = msg.getSentDate();
+                    }
+                    if (this.subject == null) {
+                        this.subject = msg.getSubject();
+                    }
+
+                    // Get from address
+                    Address[] fromAddresses = msg.getFrom();
+                    if (fromAddresses != null && fromAddresses.length > 0) {
+                        this.from = fromAddresses[0].toString();
+                    }
+
+                    // Get Message-ID header
+                    String[] headers = msg.getHeader("Message-ID");
+                    if (headers != null && headers.length > 0) {
+                        messageProperties.setProperty(PROP_MESSAGE_ID, headers[0]);
+                    }
+
+                    // Save full content to cache
+                    try {
+                        saveToCache();
+                        contentLoaded = true;
+                    } catch (MessagingException e) {
+                        LOGGER.log(Level.WARNING, "Error saving message content to cache after server fetch", e);
+                    }
+
+                    return true;
+                } catch (MessagingException e) {
+                    LOGGER.log(Level.WARNING, "Error extracting message properties from server after cache miss", e);
+                }
             } else {
                 LOGGER.warning("Failed to fetch message from server after cache miss in " + methodName);
             }
@@ -815,6 +852,7 @@ public class CachedMessage extends MimeMessage {
 
         return false;
     }
+
 
     @Override
     public String getSubject() throws MessagingException {
