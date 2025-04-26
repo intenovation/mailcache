@@ -1,6 +1,6 @@
 # JavaMail Cache Implementation
 
-A robust solution for efficient email access with flexible online/offline capabilities and permanent message archiving.
+A robust solution for efficient email access with flexible online/offline capabilities and permanent message archiving - now with multi-user support.
 
 ## Overview
 
@@ -13,6 +13,7 @@ A robust solution for efficient email access with flexible online/offline capabi
 - **Server-First Operations**: All changes happen on the server first, then locally, to prevent data loss
 - **Safe Defaults**: Delete operations are restricted to DESTRUCTIVE mode only
 - **Transparent Caching**: Access to local message storage for adding supplementary files
+- **Multi-User Support**: Cache structure organizes data by username, allowing multiple accounts in one archive
 
 ## Key Features
 
@@ -28,6 +29,7 @@ A robust solution for efficient email access with flexible online/offline capabi
 - **Conflict Resolution**: Smart handling of conflicts between local and server versions
 - **Bandwidth Optimization**: Only downloads required data, with support for partial message fetching
 - **Extended Functionality**: Access to add supplementary files alongside cached messages
+- **Multi-User Caching**: Store multiple email accounts in the same base directory, organized by username
 
 ## Getting Started
 
@@ -83,10 +85,50 @@ inbox.close(false);
 store.close();
 ```
 
+### Multi-User Cache Support
+
+```java
+import com.intenovation.mailcache.*;
+import javax.mail.*;
+
+// Create a base cache directory for all users
+File baseCacheDir = new File("/path/to/cache");
+
+// Open a store for a specific user
+CachedStore userStore = MailCache.openMultiUserStore(
+    baseCacheDir,
+    CacheMode.ACCELERATED,
+    "imap.example.com",
+    993,
+    "user1@example.com",
+    "password",
+    true // Use SSL
+);
+
+// This will create a user-specific cache at /path/to/cache/user1@example.com/
+
+// Work with folders and messages as usual
+Folder inbox = userStore.getFolder("INBOX");
+inbox.open(Folder.READ_ONLY);
+// ...
+
+// Open a store for another user
+CachedStore otherUserStore = MailCache.openMultiUserStore(
+    baseCacheDir,
+    CacheMode.ACCELERATED,
+    "imap.example.com",
+    993,
+    "user2@example.com",
+    "password",
+    true // Use SSL
+);
+
+// This will create a user-specific cache at /path/to/cache/user2@example.com/
+```
+
 ### Working with Different Modes
 
 ```java
-
 // Switch to OFFLINE mode when needed
 store.setMode(CacheMode.OFFLINE);
 
@@ -204,31 +246,37 @@ inbox.close(false);
 archive.close(false);
 ```
 
-
 ## Directory Structure
 
 The cache is organized on disk as follows:
 
 ```
 /CacheDirectory/
-├── .metadata/                # Cache metadata and indexes
-├── INBOX/
-│   ├── messages/             # Cached messages
-│   │   ├── 2024-04-09_Invoice_April/
-│   │   │   ├── message.mbox
-│   │   │   ├── headers.properties
-│   │   │   ├── content.txt
-│   │   │   ├── flags.txt
-│   │   │   └── extras/       # Supplementary files
-│   │   │       └── notes.txt
-│   │   └── 2024-04-05_Meeting_Minutes/
-│   │       └── ...
-│   └── archived_messages/    # Messages archived from INBOX
-│       └── 2024-01-10_Old_Report/
+├── user1@example.com/              # Username level - first level in hierarchy
+│   ├── INBOX/
+│   │   ├── messages/               # Cached messages
+│   │   │   ├── 2024-04-09_Invoice_April/
+│   │   │   │   ├── message.properties
+│   │   │   │   ├── content.txt
+│   │   │   │   ├── content.html    # Optional HTML version
+│   │   │   │   ├── flags.txt
+│   │   │   │   ├── attachments/    # Message attachments
+│   │   │   │   │   └── invoice.pdf
+│   │   │   │   └── extras/         # Supplementary files
+│   │   │   │       └── notes.txt
+│   │   │   └── 2024-04-05_Meeting_Minutes/
+│   │   │       └── ...
+│   │   └── archived_messages/      # Messages archived from INBOX
+│   │       └── 2024-01-10_Old_Report/
+│   │           └── ...
+│   └── Sent/
+│       └── messages/
 │           └── ...
-├── Sent/
+│
+├── user2@example.com/              # Another user's cache
+│   ├── INBOX/
+│   │   └── ...
 │   └── ...
-└── .sync/                    # Synchronization status information
 ```
 
 ## Performance Considerations
@@ -237,6 +285,7 @@ The cache is organized on disk as follows:
 - **Memory Usage**: By default, message bodies are loaded on demand to minimize memory usage
 - **Disk Space**: Since message content and attachments are stored permanently on disk, ensure adequate space
 - **Search Performance**: In OFFLINE and ACCELERATED modes, search is limited by the local indexing performance
+- **Multi-User Efficiency**: Each user has their own isolated cache, preventing cross-user performance impacts
 
 ## Requirements
 

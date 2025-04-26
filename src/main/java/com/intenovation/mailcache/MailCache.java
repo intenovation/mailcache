@@ -16,7 +16,6 @@ public class MailCache {
      * Create a new cached mail session
      *
      * @param cacheDir The directory to use for caching
-
      * @return A new Session configured for caching
      */
     private static Session createOfflineSession(File cacheDir) {
@@ -46,9 +45,9 @@ public class MailCache {
      * @return A new Session configured for caching with IMAP
      */
     private static Session createSession(File cacheDir, CacheMode mode,
-                                        String imapHost, int imapPort,
-                                        String username, String password,
-                                        boolean useSSL) {
+                                         String imapHost, int imapPort,
+                                         String username, String password,
+                                         boolean useSSL) {
         Properties props = new Properties();
         props.setProperty("mail.store.protocol", "cache");
         props.setProperty("mail.cache.directory", cacheDir.getAbsolutePath());
@@ -71,6 +70,7 @@ public class MailCache {
 
     private static CachedStore store = null;
     private static int configHash = 0;
+
     /**
      * Open a cached store with IMAP connectivity
      *
@@ -89,20 +89,74 @@ public class MailCache {
                                         String username, String password,
                                         boolean useSSL)
             throws MessagingException {
-        if (store!= null&& configHash==(imapHost+ imapPort+ username+ password).hashCode()){
-            return  store;
-        }
-        Session session = createSession(cacheDir, mode, imapHost, imapPort,
-                username, password, useSSL);
-        CachedStore newstore =  (CachedStore) session.getStore();
-        // Pass all parameters to ensure they're available in protocolConnect
-        newstore.connect(imapHost, imapPort, username, password);
-        if (newstore.isConnected()) {
-            store = newstore;
-            configHash=(imapHost+ imapPort+ username+ password).hashCode();
+        if (store != null && configHash == (imapHost + imapPort + username + password).hashCode()) {
             return store;
         }
-        return  null;
+
+        Session session = createSession(cacheDir, mode, imapHost, imapPort,
+                username, password, useSSL);
+
+        CachedStore newstore = (CachedStore) session.getStore();
+
+        // Pass all parameters to ensure they're available in protocolConnect
+        newstore.connect(imapHost, imapPort, username, password);
+
+        if (newstore.isConnected()) {
+            store = newstore;
+            configHash = (imapHost + imapPort + username + password).hashCode();
+            return store;
+        }
+
+        return null;
+    }
+
+    /**
+     * Open a cached store with IMAP connectivity
+     * This version allows explicit control of the base cache directory and user-specific paths
+     *
+     * @param baseCacheDir The base directory to use for caching multiple users
+     * @param mode The cache operation mode
+     * @param imapHost The IMAP server hostname
+     * @param imapPort The IMAP server port
+     * @param username The username for authentication
+     * @param password The password for authentication
+     * @param useSSL Whether to use SSL for IMAP
+     * @return A connected CachedStore
+     * @throws MessagingException If there is an error connecting
+     */
+    public static CachedStore openMultiUserStore(File baseCacheDir, CacheMode mode,
+                                                 String imapHost, int imapPort,
+                                                 String username, String password,
+                                                 boolean useSSL)
+            throws MessagingException {
+        if (store != null && configHash == (imapHost + imapPort + username + password).hashCode()) {
+            return store;
+        }
+
+        // Create the base cache directory if it doesn't exist
+        if (!baseCacheDir.exists()) {
+            baseCacheDir.mkdirs();
+        }
+
+        Session session = createSession(baseCacheDir, mode, imapHost, imapPort,
+                username, password, useSSL);
+
+        CachedStore newstore = (CachedStore) session.getStore();
+
+        // Pass all parameters to ensure they're available in protocolConnect
+        newstore.connect(imapHost, imapPort, username, password);
+
+        if (newstore.isConnected()) {
+            store = newstore;
+            configHash = (imapHost + imapPort + username + password).hashCode();
+
+            LOGGER.info("Successfully connected store for user: " + username +
+                    " in directory: " + newstore.getCacheDirectory().getAbsolutePath());
+
+            return store;
+        }
+
+        return null;
     }
 
     private static final Provider CACHED_STORE_PROVIDER = new Provider(
@@ -122,10 +176,14 @@ public class MailCache {
         return CACHED_STORE_PROVIDER;
     }
 
-
+    /**
+     * Close the currently open store
+     *
+     * @throws MessagingException If there is an error closing the store
+     */
     public static void closeStore() throws MessagingException {
-        if (store!= null){
-              store.close();
+        if (store != null) {
+            store.close();
         }
     }
 }
