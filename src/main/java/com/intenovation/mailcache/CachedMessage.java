@@ -99,12 +99,12 @@ public class CachedMessage extends MimeMessage {
     }
 
     /**
-    * Create a new CachedMessage from an IMAP message
-    *
-    * @param folder The folder containing this message
-    * @param imapMessage The IMAP message to cache
-    * @param overwrite Whether to overwrite existing cache if it exists
-    */
+     * Create a new CachedMessage from an IMAP message
+     *
+     * @param folder The folder containing this message
+     * @param imapMessage The IMAP message to cache
+     * @param overwrite Whether to overwrite existing cache if it exists
+     */
     public CachedMessage(CachedFolder folder, Message imapMessage, boolean overwrite)
             throws MessagingException {
         super(((CachedStore)folder.getStore()).getSession());
@@ -187,9 +187,12 @@ public class CachedMessage extends MimeMessage {
             return imapMessage;
         }
 
-        // If we're in OFFLINE mode, don't try to find the message on the server
+        // Check if we should try to get the message from the server
         CachedStore store = folder.getStore();
-        if (store.getMode() == CacheMode.OFFLINE) {
+        CacheMode mode = store.getMode();
+
+        // If we're in OFFLINE mode or server operations not allowed, don't try to find the message
+        if (mode == CacheMode.OFFLINE || !mode.shouldReadFromServerAfterCacheMiss()) {
             return null;
         }
 
@@ -545,7 +548,7 @@ public class CachedMessage extends MimeMessage {
                             // Only save attachments if configured to do so
                             CachedStore store = (CachedStore) folder.getStore();
 
-                                saveAttachment(part);
+                            saveAttachment(part);
 
                         } else {
                             // This part is likely the message body
@@ -709,25 +712,44 @@ public class CachedMessage extends MimeMessage {
         // Only save attachments if configured to do so
         CachedStore store = (CachedStore) folder.getStore();
 
-            // Save the attachment
-            File attachmentFile = new File(attachmentsDir, fileName);
-            try (InputStream is = part.getInputStream();
-                 FileOutputStream fos = new FileOutputStream(attachmentFile)) {
+        // Save the attachment
+        File attachmentFile = new File(attachmentsDir, fileName);
+        try (InputStream is = part.getInputStream();
+             FileOutputStream fos = new FileOutputStream(attachmentFile)) {
 
-                byte[] buffer = new byte[8192];
-                int bytesRead;
-                while ((bytesRead = is.read(buffer)) != -1) {
-                    fos.write(buffer, 0, bytesRead);
-                }
+            byte[] buffer = new byte[8192];
+            int bytesRead;
+            while ((bytesRead = is.read(buffer)) != -1) {
+                fos.write(buffer, 0, bytesRead);
             }
+        }
 
+    }
+
+    /**
+     * Determines if server or local operations should be used for reading
+     * based on the current CacheMode and availability of the IMAP message
+     *
+     * @return true if operations should use server data, false for local cache
+     */
+    private boolean shouldUseServerForReading() {
+        // Get the current mode
+        CachedStore store = (CachedStore) folder.getStore();
+        CacheMode mode = store.getMode();
+
+        // If mode directly states to read from server, do so if we have an IMAP message
+        if (mode.shouldReadFromServer()) {
+            return imapMessage != null;
+        }
+
+        // Otherwise, we don't use the server for initial reading
+        return false;
     }
 
     @Override
     public String getSubject() throws MessagingException {
-        // If we have an IMAP message and in ONLINE mode, use it
-        CachedStore store = (CachedStore)folder.getStore();
-        if (isOnline(store)) {
+        // Check if we should use server data
+        if (shouldUseServerForReading()) {
             return imapMessage.getSubject();
         }
 
@@ -737,7 +759,22 @@ public class CachedMessage extends MimeMessage {
         }
 
         if (messageProperties != null) {
-            return messageProperties.getProperty(PROP_SUBJECT);
+            subject = messageProperties.getProperty(PROP_SUBJECT);
+            return subject;
+        }
+
+        // If we have a cache miss and we're in a mode that allows fallback to server, try that
+        CachedStore store = (CachedStore) folder.getStore();
+        if (store.getMode().shouldReadFromServerAfterCacheMiss()) {
+            // Try to get/find the IMAP message
+            Message msg = getImapMessage();
+            if (msg != null) {
+                try {
+                    return msg.getSubject();
+                } catch (MessagingException e) {
+                    LOGGER.log(Level.WARNING, "Error getting subject from server after cache miss", e);
+                }
+            }
         }
 
         return null;
@@ -745,9 +782,8 @@ public class CachedMessage extends MimeMessage {
 
     @Override
     public Address[] getFrom() throws MessagingException {
-        // If we have an IMAP message and in ONLINE mode, use it
-        CachedStore store = (CachedStore)folder.getStore();
-        if (isOnline(store)) {
+        // Check if we should use server data
+        if (shouldUseServerForReading()) {
             return imapMessage.getFrom();
         }
 
@@ -767,28 +803,37 @@ public class CachedMessage extends MimeMessage {
             }
         }
 
-        return null;
-    }
+        // If we have a cache miss and we're in a mode that allows fallback to server, try that
+        CachedStore store = (CachedStore) folder.getStore();
+        if (store.getMode().shouldReadFromServerAfterCacheMiss()) {
+            // Try to get/find the IMAP message
+            Message msg = getImapMessage();
+            if (msg != null) {
+                try {
+                    return msg.getFrom();
+                } catch (MessagingException e) {
+                    LOGGER.log(Level.WARNING, "Error getting From address from server after cache miss", e);
+                }
+            }
+        }
 
-    private boolean isOnline(CachedStore store) {
-        return imapMessage != null && (
-                store.getMode() == CacheMode.ONLINE ||
-                        store.getMode() == CacheMode.REFRESH ||
-                        store.getMode() == CacheMode.DESTRUCTIVE
-        );
+        return null;
     }
 
     @Override
     public Date getSentDate() throws MessagingException {
-        // If we have an IMAP message and in ONLINE mode, use it
-        CachedStore store = (CachedStore)folder.getStore();
-        if (isOnline(store)) {
+        // Check if we should use server data
+        if (shouldUseServerForReading()) {
             return imapMessage.getSentDate();
         }
 
         // Otherwise use cached value
         if (!contentLoaded) {
             loadFromCache();
+        }
+
+        if (sentDate != null) {
+            return sentDate;
         }
 
         if (messageProperties != null) {
@@ -798,13 +843,29 @@ public class CachedMessage extends MimeMessage {
                     // Try to parse using standard format first
                     try {
                         java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-                        return sdf.parse(dateStr);
+                        sentDate = sdf.parse(dateStr);
+                        return sentDate;
                     } catch (java.text.ParseException pe) {
                         // Fall back to Date constructor if specific format fails
-                        return new Date(dateStr);
+                        sentDate = new Date(dateStr);
+                        return sentDate;
                     }
                 } catch (Exception e) {
                     LOGGER.log(Level.WARNING, "Error parsing sent date: " + dateStr, e);
+                }
+            }
+        }
+
+        // If we have a cache miss and we're in a mode that allows fallback to server, try that
+        CachedStore store = (CachedStore) folder.getStore();
+        if (store.getMode().shouldReadFromServerAfterCacheMiss()) {
+            // Try to get/find the IMAP message
+            Message msg = getImapMessage();
+            if (msg != null) {
+                try {
+                    return msg.getSentDate();
+                } catch (MessagingException e) {
+                    LOGGER.log(Level.WARNING, "Error getting sent date from server after cache miss", e);
                 }
             }
         }
@@ -814,9 +875,8 @@ public class CachedMessage extends MimeMessage {
 
     @Override
     public Object getContent() throws MessagingException, IOException {
-        // If we have an IMAP message and in ONLINE mode, use it
-        CachedStore store = (CachedStore)folder.getStore();
-        if (isOnline(store)) {
+        // Check if we should use server data
+        if (shouldUseServerForReading()) {
             return imapMessage.getContent();
         }
 
@@ -832,6 +892,20 @@ public class CachedMessage extends MimeMessage {
             return textContent;
         }
 
+        // If we have a cache miss and we're in a mode that allows fallback to server, try that
+        CachedStore store = (CachedStore) folder.getStore();
+        if (store.getMode().shouldReadFromServerAfterCacheMiss()) {
+            // Try to get/find the IMAP message
+            Message msg = getImapMessage();
+            if (msg != null) {
+                try {
+                    return msg.getContent();
+                } catch (MessagingException | IOException e) {
+                    LOGGER.log(Level.WARNING, "Error getting content from server after cache miss", e);
+                }
+            }
+        }
+
         // Notify listeners
         fireChangeEvent(new MailCacheChangeEvent(this,
                 MailCacheChangeEvent.ChangeType.MESSAGE_ADDED, this));
@@ -845,9 +919,8 @@ public class CachedMessage extends MimeMessage {
      * @throws MessagingException If there is an error accessing the content
      */
     public String getHtmlContent() throws MessagingException {
-        // If we have an IMAP message and in ONLINE mode, try to get HTML content
-        CachedStore store = (CachedStore)folder.getStore();
-        if (isOnline(store)) {
+        // Check if we should use server data
+        if (shouldUseServerForReading()) {
             try {
                 Object content = imapMessage.getContent();
                 if (content instanceof String) {
@@ -871,7 +944,36 @@ public class CachedMessage extends MimeMessage {
             loadFromCache();
         }
 
-        return hasHtmlContent ? htmlContent : null;
+        if (hasHtmlContent) {
+            return htmlContent;
+        }
+
+        // If we have a cache miss and we're in a mode that allows fallback to server, try that
+        CachedStore store = (CachedStore) folder.getStore();
+        if (store.getMode().shouldReadFromServerAfterCacheMiss()) {
+            // Try to get/find the IMAP message
+            Message msg = getImapMessage();
+            if (msg != null) {
+                try {
+                    Object content = msg.getContent();
+                    if (content instanceof String) {
+                        if (isHtmlContent(msg, content)) {
+                            return (String) content;
+                        }
+                    } else if (content instanceof Multipart) {
+                        StringBuilder html = new StringBuilder();
+                        processMimePartContent(msg, new StringBuilder(), html);
+                        if (html.length() > 0) {
+                            return html.toString();
+                        }
+                    }
+                } catch (IOException | MessagingException e) {
+                    LOGGER.log(Level.WARNING, "Error getting HTML content from server after cache miss", e);
+                }
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -883,9 +985,8 @@ public class CachedMessage extends MimeMessage {
      * @throws MessagingException If there is an error accessing the content
      */
     public String getTextContent() throws MessagingException {
-        // If we have an IMAP message and in ONLINE mode, try to get text content
-        CachedStore store = (CachedStore)folder.getStore();
-        if (isOnline(store)) {
+        // Check if we should use server data
+        if (shouldUseServerForReading()) {
             try {
                 Object content = imapMessage.getContent();
                 if (content instanceof String) {
@@ -961,6 +1062,50 @@ public class CachedMessage extends MimeMessage {
             } catch (Exception e) {
                 LOGGER.log(Level.WARNING, "Error converting HTML to text", e);
                 // Fall back to empty string
+            }
+        }
+
+        // If we have a cache miss and we're in a mode that allows fallback to server, try that
+        CachedStore store = (CachedStore) folder.getStore();
+        if (store.getMode().shouldReadFromServerAfterCacheMiss()) {
+            // Try to get/find the IMAP message
+            Message msg = getImapMessage();
+            if (msg != null) {
+                try {
+                    Object content = msg.getContent();
+                    if (content instanceof String) {
+                        if (!isHtmlContent(msg, content)) {
+                            String textStr = (String) content;
+                            // Cache the text content
+                            cacheTextContent(textStr);
+                            return textStr;
+                        } else {
+                            // Convert HTML to text using Jsoup
+                            String htmlStr = (String) content;
+                            String textStr = Jsoup.parse(htmlStr).wholeText();
+                            // Store both versions in cache
+                            cacheHtmlAndTextContent(htmlStr, textStr);
+                            return textStr;
+                        }
+                    } else if (content instanceof Multipart) {
+                        StringBuilder text = new StringBuilder();
+                        StringBuilder html = new StringBuilder();
+                        processMimePartContent(msg, text, html);
+
+                        if (text.length() > 0) {
+                            String textStr = text.toString();
+                            cacheTextContent(textStr);
+                            return textStr;
+                        } else if (html.length() > 0) {
+                            String htmlStr = html.toString();
+                            String textStr = Jsoup.parse(htmlStr).wholeText();
+                            cacheHtmlAndTextContent(htmlStr, textStr);
+                            return textStr;
+                        }
+                    }
+                } catch (IOException | MessagingException e) {
+                    LOGGER.log(Level.WARNING, "Error getting text content from server after cache miss", e);
+                }
             }
         }
 
@@ -1046,9 +1191,8 @@ public class CachedMessage extends MimeMessage {
      * @throws MessagingException If there is an error checking content
      */
     public boolean hasHtmlContent() throws MessagingException {
-        // If we have an IMAP message and in ONLINE mode, check it
-        CachedStore store = (CachedStore)folder.getStore();
-        if (isOnline(store)) {
+        // Check if we should use server data
+        if (shouldUseServerForReading()) {
             try {
                 Object msgContent = imapMessage.getContent();
                 if (msgContent instanceof String) {
@@ -1078,9 +1222,8 @@ public class CachedMessage extends MimeMessage {
      * @throws MessagingException If there is an error checking content
      */
     public boolean hasTextContent() throws MessagingException {
-        // If we have an IMAP message and in ONLINE mode, check it
-        CachedStore store = (CachedStore)folder.getStore();
-        if (isOnline(store)) {
+        // Check if we should use server data
+        if (shouldUseServerForReading()) {
             try {
                 Object msgContent = imapMessage.getContent();
                 if (msgContent instanceof String) {
@@ -1110,9 +1253,8 @@ public class CachedMessage extends MimeMessage {
      * @throws MessagingException If there is an error checking content type
      */
     public boolean isHtmlContent() throws MessagingException {
-        // If we have an IMAP message and in ONLINE mode, check it
-        CachedStore store = (CachedStore)folder.getStore();
-        if (isOnline(store)) {
+        // Check if we should use server data
+        if (shouldUseServerForReading()) {
             try {
                 return hasHtmlContent();
             } catch (Exception e) {
@@ -1131,14 +1273,17 @@ public class CachedMessage extends MimeMessage {
 
     @Override
     public void setFlags(Flags flag, boolean set) throws MessagingException {
+        // Get the current mode
+        CachedStore store = (CachedStore) folder.getStore();
+        CacheMode mode = store.getMode();
+
         // In OFFLINE mode, cannot modify
-        CachedStore store = (CachedStore)folder.getStore();
-        if (store.getMode() == CacheMode.OFFLINE) {
+        if (mode == CacheMode.OFFLINE) {
             throw new MessagingException("Cannot modify messages in OFFLINE mode");
         }
 
         // Prevent setting DELETED flag unless in DESTRUCTIVE mode
-        if (set && flag.contains(Flags.Flag.DELETED) && store.getMode() != CacheMode.DESTRUCTIVE) {
+        if (set && flag.contains(Flags.Flag.DELETED) && !mode.isDeleteAllowed()) {
             throw new MessagingException("Cannot delete messages unless in DESTRUCTIVE mode");
         }
 
@@ -1160,7 +1305,7 @@ public class CachedMessage extends MimeMessage {
         }
 
         // Always update in cache for all modes except OFFLINE
-        if (store.getMode() != CacheMode.OFFLINE) {
+        if (mode != CacheMode.OFFLINE) {
             try {
                 // Save flags
                 try (FileWriter writer = new FileWriter(
@@ -1201,9 +1346,8 @@ public class CachedMessage extends MimeMessage {
 
     @Override
     public Flags getFlags() throws MessagingException {
-        // If we have an IMAP message and in ONLINE mode, use it
-        CachedStore store = (CachedStore)folder.getStore();
-        if (isOnline(store)) {
+        // Check if we should use server data
+        if (shouldUseServerForReading()) {
             return imapMessage.getFlags();
         }
 
@@ -1217,9 +1361,8 @@ public class CachedMessage extends MimeMessage {
 
     @Override
     public boolean isSet(Flags.Flag flag) throws MessagingException {
-        // If we have an IMAP message and in ONLINE mode, use it
-        CachedStore store = (CachedStore)folder.getStore();
-        if (isOnline(store)) {
+        // Check if we should use server data
+        if (shouldUseServerForReading()) {
             return imapMessage.isSet(flag);
         }
 
@@ -1233,9 +1376,8 @@ public class CachedMessage extends MimeMessage {
 
     @Override
     public int getSize() throws MessagingException {
-        // If we have an IMAP message and in ONLINE mode, use it
-        CachedStore store = (CachedStore)folder.getStore();
-        if (isOnline(store)) {
+        // Check if we should use server data
+        if (shouldUseServerForReading()) {
             return imapMessage.getSize();
         }
 
@@ -1256,9 +1398,8 @@ public class CachedMessage extends MimeMessage {
 
     @Override
     public InputStream getInputStream() throws IOException, MessagingException {
-        // If we have an IMAP message and in ONLINE mode, use it
-        CachedStore store = (CachedStore)folder.getStore();
-        if (isOnline(store)) {
+        // Check if we should use server data
+        if (shouldUseServerForReading()) {
             return imapMessage.getInputStream();
         }
 
@@ -1278,13 +1419,26 @@ public class CachedMessage extends MimeMessage {
                     new ByteArrayInputStream(new byte[0]);
         }
 
+        // If we have a cache miss and we're in a mode that allows fallback to server, try that
+        CachedStore store = (CachedStore) folder.getStore();
+        if (store.getMode().shouldReadFromServerAfterCacheMiss()) {
+            // Try to get/find the IMAP message
+            Message msg = getImapMessage();
+            if (msg != null) {
+                try {
+                    return msg.getInputStream();
+                } catch (IOException | MessagingException e) {
+                    LOGGER.log(Level.WARNING, "Error getting input stream from server after cache miss", e);
+                }
+            }
+        }
+
         return new ByteArrayInputStream(new byte[0]);
     }
 
     @Override
     public void writeTo(OutputStream os) throws IOException, MessagingException {
-        // If we have an IMAP message and in ONLINE mode, use it
-        CachedStore store = (CachedStore)folder.getStore();
+        // If we have an IMAP message, use it
         if (imapMessage != null) {
             if (imapMessage instanceof MimeMessage) {
                 ((MimeMessage)imapMessage).writeTo(os);
@@ -1509,5 +1663,4 @@ public class CachedMessage extends MimeMessage {
         // For non-PDF attachments, return null or potentially add other converters here
         return null;
     }
-
 }
