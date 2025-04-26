@@ -73,30 +73,71 @@ public class CachedFolder extends Folder {
                 archivedDir.mkdirs();
             }
         }
+
+        // imapFolder is now initialized lazily via getImapFolder()
     }
 
     /**
      * Gets the IMAP folder corresponding to this cached folder
+     * Lazy initialization happens here
      *
      * @return The IMAP folder or null if not available
      */
     public Folder getImapFolder() {
-        // Only try to get the IMAP folder if we're not in OFFLINE mode
-        if (imapFolder == null && !cachedStore.getMode().shouldReadFromServer() &&
-                cachedStore.getImapStore() != null) {
+        CacheMode cacheMode = cachedStore.getMode();
+
+        // Don't initialize in OFFLINE mode
+        if (cacheMode == CacheMode.OFFLINE) {
+            return null;
+        }
+
+        // Return if already initialized
+        if (imapFolder != null) {
+            return imapFolder;
+        }
+
+        // Check if IMAP store is available
+        Store imapStore = cachedStore.getImapStore();
+        if (imapStore == null) {
+            LOGGER.fine("Cannot initialize IMAP folder - IMAP store is null");
+            return null;
+        }
+
+        // Try to connect the store if it's not connected
+        if (!imapStore.isConnected()) {
+            LOGGER.info("IMAP store is not connected - attempting to connect");
             try {
-                if (!cachedStore.getImapStore().isConnected()) {
-                    LOGGER.log(Level.WARNING, "IMAP Store not connected. ");
-                    cachedStore.getImapStore().connect();
+                // We don't have connection parameters here, so we'll try connecting without parameters
+                // The store should use the parameters from its initialization
+                imapStore.connect();
+                if (!imapStore.isConnected()) {
+                    LOGGER.warning("Failed to connect IMAP store");
+                    return null;
                 }
-                this.imapFolder = cachedStore.getImapStore().getFolder(folderName);
-                LOGGER.fine("Initialized IMAP folder: " + folderName);
+                LOGGER.info("Successfully connected IMAP store");
             } catch (MessagingException e) {
-                // Log exception but continue - we'll initialize lazily when needed
-                LOGGER.log(Level.WARNING, "Could not get IMAP folder: " + e.getMessage(), e);
+                LOGGER.log(Level.WARNING, "Error connecting IMAP store: " + e.getMessage(), e);
+                return null;
             }
         }
-        return imapFolder;
+
+        // Now initialize the IMAP folder
+        try {
+            this.imapFolder = imapStore.getFolder(folderName);
+            LOGGER.fine("Initialized IMAP folder: " + folderName);
+
+            // Check if folder exists on server
+            if (!imapFolder.exists() && cacheDir != null && cacheDir.exists()) {
+                // Folder exists locally but not remotely - warn but don't create on server
+                LOGGER.warning("Folder '" + folderName + "' exists locally but not on the server. " +
+                        "This may indicate a synchronization issue.");
+            }
+
+            return imapFolder;
+        } catch (MessagingException e) {
+            LOGGER.log(Level.WARNING, "Could not get IMAP folder: " + e.getMessage(), e);
+            return null;
+        }
     }
 
     /**
@@ -179,54 +220,34 @@ public class CachedFolder extends Folder {
             return false;
         }
 
-        // Check if IMAP store is available
-        Store imapStore = cachedStore.getImapStore();
-        if (imapStore == null) {
-            LOGGER.warning("IMAP store is null - cannot perform server operation");
+        // Get IMAP folder with lazy initialization
+        Folder folder = getImapFolder();
+        if (folder == null) {
+            LOGGER.warning("IMAP folder is null - cannot perform server operation");
             return false;
         }
 
-        if (!imapStore.isConnected()) {
-            LOGGER.warning("IMAP store is not connected - cannot perform server operation");
-            return false;
-        }
-
-        // Initialize IMAP folder if null
-        if (imapFolder == null) {
-            LOGGER.info("Lazily initializing IMAP folder: " + getFullName());
-            imapFolder = imapStore.getFolder(getFullName());
-
-            // For Gmail-style implementations we might need to ensure the label exists
-            if (!imapFolder.exists() && folderMode == Folder.READ_WRITE) {
-                LOGGER.info("Creating folder/label on server: " + getFullName());
-                boolean created = imapFolder.create(Folder.HOLDS_MESSAGES | Folder.HOLDS_FOLDERS);
-                if (!created) {
-                    LOGGER.warning("Failed to create folder/label on server: " + getFullName());
-                }
-            }
-        }
-
-        if ((imapFolder.getType() & HOLDS_MESSAGES) == 0)
+        if ((folder.getType() & HOLDS_MESSAGES) == 0)
             return true;
 
         // Open the folder if needed
-        if (!imapFolder.isOpen()) {
+        if (!folder.isOpen()) {
             LOGGER.info("Opening IMAP folder: " + getFullName() + " in mode: " +
                     (folderMode == Folder.READ_ONLY ? "READ_ONLY" : "READ_WRITE"));
             try {
-                imapFolder.open(folderMode);
+                folder.open(folderMode);
             } catch (MessagingException e) {
                 LOGGER.log(Level.WARNING, "Error opening IMAP folder: " + getFullName(), e);
                 return false;
             }
-        } else if (imapFolder.getMode() != folderMode && folderMode == Folder.READ_WRITE) {
+        } else if (folder.getMode() != folderMode && folderMode == Folder.READ_WRITE) {
             // If we need READ_WRITE but folder is only open READ_ONLY, reopen it
             LOGGER.info("Reopening IMAP folder in READ_WRITE mode: " + getFullName());
-            imapFolder.close(false);
-            imapFolder.open(folderMode);
+            folder.close(false);
+            folder.open(folderMode);
         }
 
-        return imapFolder.isOpen();
+        return folder.isOpen();
     }
 
     @Override
@@ -242,13 +263,11 @@ public class CachedFolder extends Folder {
             boolean imapFolderExists = false;
 
             try {
-                // Ensure IMAP folder is initialized (but don't open it)
-                if (imapFolder == null && cachedStore.getImapStore() != null) {
-                    imapFolder = cachedStore.getImapStore().getFolder(folderName);
-                }
+                // Get IMAP folder with lazy initialization
+                Folder folder = getImapFolder();
 
-                if (imapFolder != null) {
-                    imapFolderExists = imapFolder.exists();
+                if (folder != null) {
+                    imapFolderExists = folder.exists();
 
                     if (imapFolderExists) {
                         // Exists remotely but not locally - create it locally to fix the synch problem
@@ -300,7 +319,7 @@ public class CachedFolder extends Folder {
         if (cacheMode.shouldReadFromServer() || cacheMode.shouldReadFromServerAfterCacheMiss()) {
             try {
                 // Ensure IMAP folder is initialized
-                prepareImapFolderForOperation(Folder.READ_ONLY);
+                Folder imapFolder = getImapFolder();
 
                 if (imapFolder != null) {
                     Folder[] imapFolders = imapFolder.list(pattern);
@@ -373,10 +392,8 @@ public class CachedFolder extends Folder {
 
         // Create on server if possible
         try {
-            // Ensure IMAP folder is initialized
-            if (imapFolder == null && cachedStore.getImapStore() != null) {
-                imapFolder = cachedStore.getImapStore().getFolder(folderName);
-            }
+            // Lazy initialize IMAP folder
+            Folder imapFolder = getImapFolder();
 
             if (imapFolder != null) {
                 success = imapFolder.create(type);
@@ -517,13 +534,11 @@ public class CachedFolder extends Folder {
             if (imapReady && folder instanceof CachedFolder) {
                 CachedFolder cachedFolder = (CachedFolder) folder;
 
-                // Ensure destination IMAP folder is initialized
-                if (cachedFolder.imapFolder == null && cachedStore.getImapStore() != null) {
-                    cachedFolder.imapFolder = cachedStore.getImapStore().getFolder(cachedFolder.folderName);
-                }
+                // Ensure destination IMAP folder is initialized (through lazy initialization)
+                Folder destImapFolder = cachedFolder.getImapFolder();
 
-                if (cachedFolder.imapFolder != null) {
-                    success = imapFolder.renameTo(cachedFolder.imapFolder);
+                if (destImapFolder != null) {
+                    success = imapFolder.renameTo(destImapFolder);
                     if (!success) {
                         LOGGER.warning("Failed to rename folder on server");
                         return false; // Don't rename locally if server rename failed
@@ -637,19 +652,24 @@ public class CachedFolder extends Folder {
         CacheMode cacheMode = cachedStore.getMode();
 
         // For REFRESH mode, always get from IMAP
-        if (cacheMode.shouldReadFromServer() && imapFolder != null && imapFolder.isOpen()) {
-            // Get from IMAP
-            Message[] imapMessages = imapMessages = imapFolder.getMessages(start, end);
+        if (cacheMode.shouldReadFromServer()) {
+            // Get IMAP folder with lazy initialization
+            Folder imapFolder = getImapFolder();
 
-            // Create cached versions
-            CachedMessage[] cachedMessages = new CachedMessage[imapMessages.length];
-            for (int i = 0; i < imapMessages.length; i++) {
-                // In REFRESH mode, overwrite existing cache
-                boolean overwrite = cacheMode == CacheMode.REFRESH;
-                cachedMessages[i] = new CachedMessage(this, imapMessages[i], overwrite);
+            if (imapFolder != null && imapFolder.isOpen()) {
+                // Get from IMAP
+                Message[] imapMessages = imapFolder.getMessages(start, end);
+
+                // Create cached versions
+                CachedMessage[] cachedMessages = new CachedMessage[imapMessages.length];
+                for (int i = 0; i < imapMessages.length; i++) {
+                    // In REFRESH mode, overwrite existing cache
+                    boolean overwrite = cacheMode == CacheMode.REFRESH;
+                    cachedMessages[i] = new CachedMessage(this, imapMessages[i], overwrite);
+                }
+
+                return cachedMessages;
             }
-
-            return cachedMessages;
         }
 
         // For other modes, get from local cache
@@ -689,24 +709,28 @@ public class CachedFolder extends Folder {
         }
 
         // If we should try server after cache miss and we found nothing in cache
-        if (messages.isEmpty() && cacheMode.shouldReadFromServerAfterCacheMiss() &&
-                imapFolder != null && imapFolder.isOpen()) {
-            try {
-                LOGGER.info("Cache miss in getMessages(" + start + ", " + end +
-                        ") - fetching from server");
+        if (messages.isEmpty() && cacheMode.shouldReadFromServerAfterCacheMiss()) {
+            // Get IMAP folder with lazy initialization
+            Folder imapFolder = getImapFolder();
 
-                // Get from IMAP
-                Message[] imapMessages = imapFolder.getMessages(start, end);
+            if (imapFolder != null && imapFolder.isOpen()) {
+                try {
+                    LOGGER.info("Cache miss in getMessages(" + start + ", " + end +
+                            ") - fetching from server");
 
-                // Create cached versions
-                CachedMessage[] cachedMessages = new CachedMessage[imapMessages.length];
-                for (int i = 0; i < imapMessages.length; i++) {
-                    cachedMessages[i] = new CachedMessage(this, imapMessages[i]);
+                    // Get from IMAP
+                    Message[] imapMessages = imapFolder.getMessages(start, end);
+
+                    // Create cached versions
+                    CachedMessage[] cachedMessages = new CachedMessage[imapMessages.length];
+                    for (int i = 0; i < imapMessages.length; i++) {
+                        cachedMessages[i] = new CachedMessage(this, imapMessages[i]);
+                    }
+
+                    return cachedMessages;
+                } catch (MessagingException e) {
+                    LOGGER.log(Level.WARNING, "Error getting messages from server after cache miss", e);
                 }
-
-                return cachedMessages;
-            } catch (MessagingException e) {
-                LOGGER.log(Level.WARNING, "Error getting messages from server after cache miss", e);
             }
         }
 
@@ -719,19 +743,24 @@ public class CachedFolder extends Folder {
         CacheMode cacheMode = cachedStore.getMode();
 
         // For REFRESH mode, always get from IMAP
-        if (cacheMode.shouldReadFromServer() && imapFolder != null && imapFolder.isOpen()) {
-            // Get from IMAP
-            Message[] imapMessages = imapFolder.getMessages();
+        if (cacheMode.shouldReadFromServer()) {
+            // Get IMAP folder with lazy initialization
+            Folder imapFolder = getImapFolder();
 
-            // Create cached versions
-            CachedMessage[] cachedMessages = new CachedMessage[imapMessages.length];
-            for (int i = 0; i < imapMessages.length; i++) {
-                // In REFRESH mode, overwrite existing cache
-                boolean overwrite = cacheMode == CacheMode.REFRESH;
-                cachedMessages[i] = new CachedMessage(this, imapMessages[i], overwrite);
+            if (imapFolder != null && imapFolder.isOpen()) {
+                // Get from IMAP
+                Message[] imapMessages = imapFolder.getMessages();
+
+                // Create cached versions
+                CachedMessage[] cachedMessages = new CachedMessage[imapMessages.length];
+                for (int i = 0; i < imapMessages.length; i++) {
+                    // In REFRESH mode, overwrite existing cache
+                    boolean overwrite = cacheMode == CacheMode.REFRESH;
+                    cachedMessages[i] = new CachedMessage(this, imapMessages[i], overwrite);
+                }
+
+                return cachedMessages;
             }
-
-            return cachedMessages;
         }
 
         // For other modes, get from local cache
@@ -761,23 +790,27 @@ public class CachedFolder extends Folder {
         }
 
         // If we should try server after cache miss and we found nothing in cache
-        if (messages.isEmpty() && cacheMode.shouldReadFromServerAfterCacheMiss() &&
-                imapFolder != null && imapFolder.isOpen()) {
-            try {
-                LOGGER.info("Cache miss in getMessages() - fetching from server");
+        if (messages.isEmpty() && cacheMode.shouldReadFromServerAfterCacheMiss()) {
+            // Get IMAP folder with lazy initialization
+            Folder imapFolder = getImapFolder();
 
-                // Get from IMAP
-                Message[] imapMessages = imapFolder.getMessages();
+            if (imapFolder != null && imapFolder.isOpen()) {
+                try {
+                    LOGGER.info("Cache miss in getMessages() - fetching from server");
 
-                // Create cached versions
-                CachedMessage[] cachedMessages = new CachedMessage[imapMessages.length];
-                for (int i = 0; i < imapMessages.length; i++) {
-                    cachedMessages[i] = new CachedMessage(this, imapMessages[i]);
+                    // Get from IMAP
+                    Message[] imapMessages = imapFolder.getMessages();
+
+                    // Create cached versions
+                    CachedMessage[] cachedMessages = new CachedMessage[imapMessages.length];
+                    for (int i = 0; i < imapMessages.length; i++) {
+                        cachedMessages[i] = new CachedMessage(this, imapMessages[i]);
+                    }
+
+                    return cachedMessages;
+                } catch (MessagingException e) {
+                    LOGGER.log(Level.WARNING, "Error getting messages from server after cache miss", e);
                 }
-
-                return cachedMessages;
-            } catch (MessagingException e) {
-                LOGGER.log(Level.WARNING, "Error getting messages from server after cache miss", e);
             }
         }
 
@@ -790,15 +823,20 @@ public class CachedFolder extends Folder {
         CacheMode cacheMode = cachedStore.getMode();
 
         // For modes that use server search, get from IMAP
-        if (cacheMode.shouldSearchOnServer() && imapFolder != null && imapFolder.isOpen()) {
-            try {
-                return imapFolder.getMessageCount();
-            } catch (MessagingException e) {
-                // Fall back to local cache if server check fails and mode allows it
-                if (!cacheMode.shouldReadFromServerAfterCacheMiss()) {
-                    throw e;
+        if (cacheMode.shouldSearchOnServer()) {
+            // Get IMAP folder with lazy initialization
+            Folder imapFolder = getImapFolder();
+
+            if (imapFolder != null && imapFolder.isOpen()) {
+                try {
+                    return imapFolder.getMessageCount();
+                } catch (MessagingException e) {
+                    // Fall back to local cache if server check fails and mode allows it
+                    if (!cacheMode.shouldReadFromServerAfterCacheMiss()) {
+                        throw e;
+                    }
+                    LOGGER.log(Level.WARNING, "Error getting message count from server", e);
                 }
-                LOGGER.log(Level.WARNING, "Error getting message count from server", e);
             }
         }
 
@@ -822,13 +860,18 @@ public class CachedFolder extends Folder {
         CacheMode cacheMode = cachedStore.getMode();
 
         // For REFRESH mode, always get from IMAP
-        if (cacheMode.shouldReadFromServer() && imapFolder != null && imapFolder.isOpen()) {
-            // Get from IMAP
-            Message imapMessage = imapFolder.getMessage(msgnum);
+        if (cacheMode.shouldReadFromServer()) {
+            // Get IMAP folder with lazy initialization
+            Folder imapFolder = getImapFolder();
 
-            // Create cached version, overwriting existing one in REFRESH mode
-            boolean overwrite = cacheMode == CacheMode.REFRESH;
-            return new CachedMessage(this, imapMessage, overwrite);
+            if (imapFolder != null && imapFolder.isOpen()) {
+                // Get from IMAP
+                Message imapMessage = imapFolder.getMessage(msgnum);
+
+                // Create cached version, overwriting existing one in REFRESH mode
+                boolean overwrite = cacheMode == CacheMode.REFRESH;
+                return new CachedMessage(this, imapMessage, overwrite);
+            }
         }
 
         // For other modes, get from local cache
@@ -849,17 +892,22 @@ public class CachedFolder extends Folder {
         }
 
         // Cache miss - try server if mode allows
-        if (cacheMode.shouldReadFromServerAfterCacheMiss() && imapFolder != null && imapFolder.isOpen()) {
-            try {
-                LOGGER.info("Cache miss in getMessage(" + msgnum + ") - fetching from server");
+        if (cacheMode.shouldReadFromServerAfterCacheMiss()) {
+            // Get IMAP folder with lazy initialization
+            Folder imapFolder = getImapFolder();
 
-                // Get from IMAP
-                Message imapMessage = imapFolder.getMessage(msgnum);
+            if (imapFolder != null && imapFolder.isOpen()) {
+                try {
+                    LOGGER.info("Cache miss in getMessage(" + msgnum + ") - fetching from server");
 
-                // Create cached version
-                return new CachedMessage(this, imapMessage);
-            } catch (MessagingException e) {
-                LOGGER.log(Level.WARNING, "Error getting message from server after cache miss", e);
+                    // Get from IMAP
+                    Message imapMessage = imapFolder.getMessage(msgnum);
+
+                    // Create cached version
+                    return new CachedMessage(this, imapMessage);
+                } catch (MessagingException e) {
+                    LOGGER.log(Level.WARNING, "Error getting message from server after cache miss", e);
+                }
             }
         }
 
@@ -1042,15 +1090,20 @@ public class CachedFolder extends Folder {
         CacheMode cacheMode = cachedStore.getMode();
 
         // For modes that use server search, get from IMAP
-        if (cacheMode.shouldSearchOnServer() && imapFolder != null && imapFolder.isOpen()) {
-            try {
-                return imapFolder.getUnreadMessageCount();
-            } catch (MessagingException e) {
-                // Fall back to local cache if server check fails and mode allows it
-                if (!cacheMode.shouldReadFromServerAfterCacheMiss()) {
-                    throw e;
+        if (cacheMode.shouldSearchOnServer()) {
+            // Get IMAP folder with lazy initialization
+            Folder imapFolder = getImapFolder();
+
+            if (imapFolder != null && imapFolder.isOpen()) {
+                try {
+                    return imapFolder.getUnreadMessageCount();
+                } catch (MessagingException e) {
+                    // Fall back to local cache if server check fails and mode allows it
+                    if (!cacheMode.shouldReadFromServerAfterCacheMiss()) {
+                        throw e;
+                    }
+                    LOGGER.log(Level.WARNING, "Error getting unread message count from server", e);
                 }
-                LOGGER.log(Level.WARNING, "Error getting unread message count from server", e);
             }
         }
 
@@ -1077,12 +1130,17 @@ public class CachedFolder extends Folder {
         CacheMode cacheMode = cachedStore.getMode();
 
         // Only modes that use server can determine new message count
-        if (cacheMode.shouldReadFromServer() && imapFolder != null && imapFolder.isOpen()) {
-            try {
-                return imapFolder.getNewMessageCount();
-            } catch (MessagingException e) {
-                // Log error but return 0
-                LOGGER.log(Level.WARNING, "Error getting new message count from server", e);
+        if (cacheMode.shouldReadFromServer()) {
+            // Get IMAP folder with lazy initialization
+            Folder imapFolder = getImapFolder();
+
+            if (imapFolder != null && imapFolder.isOpen()) {
+                try {
+                    return imapFolder.getNewMessageCount();
+                } catch (MessagingException e) {
+                    // Log error but return 0
+                    LOGGER.log(Level.WARNING, "Error getting new message count from server", e);
+                }
             }
         }
 
@@ -1094,15 +1152,20 @@ public class CachedFolder extends Folder {
         CacheMode cacheMode = cachedStore.getMode();
 
         // Only modes that use server can determine if there are new messages
-        if (cacheMode.shouldReadFromServer() && imapFolder != null) {
-            try {
-                return imapFolder.hasNewMessages();
-            } catch (MessagingException e) {
-                // Fall back to local check if server check fails and mode allows it
-                if (!cacheMode.shouldReadFromServerAfterCacheMiss()) {
-                    throw e;
+        if (cacheMode.shouldReadFromServer()) {
+            // Get IMAP folder with lazy initialization
+            Folder imapFolder = getImapFolder();
+
+            if (imapFolder != null) {
+                try {
+                    return imapFolder.hasNewMessages();
+                } catch (MessagingException e) {
+                    // Fall back to local check if server check fails and mode allows it
+                    if (!cacheMode.shouldReadFromServerAfterCacheMiss()) {
+                        throw e;
+                    }
+                    LOGGER.log(Level.WARNING, "Error checking for new messages on server", e);
                 }
-                LOGGER.log(Level.WARNING, "Error checking for new messages on server", e);
             }
         }
 
@@ -1174,12 +1237,12 @@ public class CachedFolder extends Folder {
         CacheMode cacheMode = cachedStore.getMode();
 
         // For modes that use server search, search on server
-        if (cacheMode.shouldSearchOnServer() && imapFolder != null && imapFolder.isOpen()) {
-            try {
-                // Ensure IMAP folder is ready
-                boolean imapReady = prepareImapFolderForOperation(Folder.READ_ONLY);
+        if (cacheMode.shouldSearchOnServer()) {
+            // Get IMAP folder with lazy initialization
+            Folder imapFolder = getImapFolder();
 
-                if (imapReady) {
+            if (imapFolder != null && imapFolder.isOpen()) {
+                try {
                     Message[] serverResults = imapFolder.search(term);
 
                     // Create cached versions of the server results
@@ -1190,14 +1253,12 @@ public class CachedFolder extends Folder {
 
                     LOGGER.info("Server search found " + cachedResults.size() + " messages");
                     return cachedResults.toArray(new CachedMessage[0]);
-                } else {
-                    LOGGER.warning("Cannot search on server - IMAP folder not ready");
-                }
-            } catch (MessagingException e) {
-                LOGGER.log(Level.WARNING, "Error searching on server, falling back to local cache", e);
-                // Continue with local search if mode allows fallback
-                if (!cacheMode.shouldReadFromServerAfterCacheMiss()) {
-                    throw e;
+                } catch (MessagingException e) {
+                    LOGGER.log(Level.WARNING, "Error searching on server, falling back to local cache", e);
+                    // Continue with local search if mode allows fallback
+                    if (!cacheMode.shouldReadFromServerAfterCacheMiss()) {
+                        throw e;
+                    }
                 }
             }
         }
@@ -1487,8 +1548,11 @@ public class CachedFolder extends Folder {
      */
     private boolean isGmailServer() {
         try {
-            if (imapFolder != null && imapFolder.getStore() != null) {
-                URLName url = imapFolder.getStore().getURLName();
+            // Get IMAP folder with lazy initialization
+            Folder folder = getImapFolder();
+
+            if (folder != null && folder.getStore() != null) {
+                URLName url = folder.getStore().getURLName();
                 if (url != null && url.getHost() != null) {
                     String host = url.getHost().toLowerCase();
                     return host.contains("gmail") || host.contains("googlemail") ||
