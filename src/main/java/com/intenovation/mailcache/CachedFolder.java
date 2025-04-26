@@ -3,6 +3,7 @@ package com.intenovation.mailcache;
 import javax.mail.*;
 import javax.mail.internet.MimeMessage;
 import javax.mail.search.SearchTerm;
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -24,6 +25,8 @@ public class CachedFolder extends Folder {
     private String folderName; // Name of this folder
     private boolean isOpen = false;
     private int mode = -1;
+    private int cachedMessageCount = -1;    // Cache the message count locally for performance
+    private int cachedUnreadCount = -1;     // Cache the unread count locally for performance
 
     // Listener support
     private final List<MailCacheChangeListener> listeners = new CopyOnWriteArrayList<>();
@@ -252,7 +255,7 @@ public class CachedFolder extends Folder {
 
     @Override
     public boolean exists() throws MessagingException {
-        // Check cache directory first
+        // Check cache directory first - optimize by using local cache when possible
         if (cacheDir != null && cacheDir.exists()) {
             return true;
         }
@@ -595,6 +598,10 @@ public class CachedFolder extends Folder {
 
         isOpen = true;
 
+        // Reset cached counts when opening the folder
+        cachedMessageCount = -1;
+        cachedUnreadCount = -1;
+
         // Notify listeners
         fireChangeEvent(new MailCacheChangeEvent(this,
                 MailCacheChangeEvent.ChangeType.FOLDER_UPDATED, this));
@@ -619,6 +626,10 @@ public class CachedFolder extends Folder {
         isOpen = false;
         this.mode = -1;
 
+        // Reset cached counts when closing the folder
+        cachedMessageCount = -1;
+        cachedUnreadCount = -1;
+
         // Notify listeners
         fireChangeEvent(new MailCacheChangeEvent(this,
                 MailCacheChangeEvent.ChangeType.FOLDER_UPDATED, this));
@@ -637,6 +648,20 @@ public class CachedFolder extends Folder {
             // For modes that use server, get from IMAP
             if (cacheMode.shouldReadFromServer() && imapFolder != null && imapFolder.isOpen()) {
                 return imapFolder.getPermanentFlags();
+            }
+
+            // For modes that use cache, construct a set of flags from cached messages
+            if (cacheDir != null) {
+                // This is an optimization we could implement - maintaining a cached set of all flags
+                // used in this folder's messages. For now, we'll return a default set.
+                Flags flags = new Flags();
+                flags.add(Flags.Flag.ANSWERED);
+                flags.add(Flags.Flag.DELETED);
+                flags.add(Flags.Flag.DRAFT);
+                flags.add(Flags.Flag.FLAGGED);
+                flags.add(Flags.Flag.RECENT);
+                flags.add(Flags.Flag.SEEN);
+                return flags;
             }
         } catch (Exception e) {
             // Fallback to empty flags
@@ -817,10 +842,97 @@ public class CachedFolder extends Folder {
         return messages.toArray(new CachedMessage[0]);
     }
 
+    /**
+     * Count the messages in the cache directory
+     * Used internally as an optimization
+     *
+     * @return The number of messages in the cache directory
+     */
+    private int countCacheMessages() {
+        if (cacheDir != null) {
+            File messagesDir = new File(cacheDir, "messages");
+            if (messagesDir.exists()) {
+                File[] messageDirs = messagesDir.listFiles(File::isDirectory);
+                if (messageDirs != null) {
+                    return messageDirs.length;
+                }
+            }
+        }
+        return 0;
+    }
+
+    /**
+     * Count unread messages in the cache directory
+     * Used internally as an optimization
+     *
+     * @return The number of unread messages in the cache
+     */
+    private int countCacheUnreadMessages() {
+        int unreadCount = 0;
+        if (cacheDir != null) {
+            File messagesDir = new File(cacheDir, "messages");
+            if (messagesDir.exists()) {
+                File[] messageDirs = messagesDir.listFiles(File::isDirectory);
+                if (messageDirs != null) {
+                    for (File messageDir : messageDirs) {
+                        // Check if message is marked as seen in flags.txt
+                        File flagsFile = new File(messageDir, "flags.txt");
+                        if (flagsFile.exists()) {
+                            try (BufferedReader reader = new BufferedReader(new java.io.FileReader(flagsFile))) {
+                                String line;
+                                boolean seen = false;
+                                while ((line = reader.readLine()) != null) {
+                                    if ("SEEN".equals(line)) {
+                                        seen = true;
+                                        break;
+                                    }
+                                }
+                                if (!seen) {
+                                    unreadCount++;
+                                }
+                            } catch (IOException e) {
+                                LOGGER.log(Level.WARNING, "Error reading flags file", e);
+                            }
+                        } else {
+                            // No flags file means not seen
+                            unreadCount++;
+                        }
+                    }
+                }
+            }
+        }
+        return unreadCount;
+    }
+
     @Override
     public int getMessageCount() throws MessagingException {
         checkOpen();
         CacheMode cacheMode = cachedStore.getMode();
+
+        // Use cached count if available
+        if (cachedMessageCount >= 0) {
+            return cachedMessageCount;
+        }
+
+        // Always check cache first for all modes except REFRESH
+        if (cacheMode != CacheMode.REFRESH) {
+            int cacheCount = countCacheMessages();
+
+            // In OFFLINE mode or when server is unavailable, use cache count
+            if (cacheMode == CacheMode.OFFLINE ||
+                    (cacheMode == CacheMode.ACCELERATED && (imapFolder == null || !imapFolder.isOpen()))) {
+
+                cachedMessageCount = cacheCount;
+                return cacheCount;
+            }
+
+            // For ONLINE and ACCELERATED modes with server connection,
+            // use cache count if it's non-zero
+            if ((cacheMode == CacheMode.ONLINE || cacheMode == CacheMode.ACCELERATED) && cacheCount > 0) {
+                cachedMessageCount = cacheCount;
+                return cacheCount;
+            }
+        }
 
         // For modes that use server search, get from IMAP
         if (cacheMode.shouldSearchOnServer()) {
@@ -829,7 +941,9 @@ public class CachedFolder extends Folder {
 
             if (imapFolder != null && imapFolder.isOpen()) {
                 try {
-                    return imapFolder.getMessageCount();
+                    int count = imapFolder.getMessageCount();
+                    cachedMessageCount = count;
+                    return count;
                 } catch (MessagingException e) {
                     // Fall back to local cache if server check fails and mode allows it
                     if (!cacheMode.shouldReadFromServerAfterCacheMiss()) {
@@ -840,18 +954,10 @@ public class CachedFolder extends Folder {
             }
         }
 
-        // For other modes, count from cache
-        if (cacheDir != null) {
-            File messagesDir = new File(cacheDir, "messages");
-            if (messagesDir.exists()) {
-                File[] messageDirs = messagesDir.listFiles(File::isDirectory);
-                if (messageDirs != null) {
-                    return messageDirs.length;
-                }
-            }
-        }
-
-        return 0;
+        // Fall back to cache count
+        int count = countCacheMessages();
+        cachedMessageCount = count;
+        return count;
     }
 
     @Override
@@ -1022,6 +1128,9 @@ public class CachedFolder extends Folder {
                 serverOperationSuccessful = true;
                 LOGGER.info("Server append completed successfully");
 
+                // Reset cached message count since we've added messages
+                cachedMessageCount = -1;
+
             } catch (MessagingException e) {
                 LOGGER.log(Level.SEVERE, "Error appending messages to server", e);
 
@@ -1071,6 +1180,10 @@ public class CachedFolder extends Folder {
             }
 
             LOGGER.info("Local cache append completed");
+
+            // Reset cached counts since we've added messages
+            cachedMessageCount = -1;
+            cachedUnreadCount = -1;
         } else {
             LOGGER.warning("Cannot append to local cache - cache directory is null");
         }
@@ -1089,6 +1202,31 @@ public class CachedFolder extends Folder {
         checkOpen();
         CacheMode cacheMode = cachedStore.getMode();
 
+        // Use cached count if available
+        if (cachedUnreadCount >= 0) {
+            return cachedUnreadCount;
+        }
+
+        // Always check cache first for all modes except REFRESH
+        if (cacheMode != CacheMode.REFRESH) {
+            int cacheUnreadCount = countCacheUnreadMessages();
+
+            // In OFFLINE mode or when server is unavailable, use cache count
+            if (cacheMode == CacheMode.OFFLINE ||
+                    (cacheMode == CacheMode.ACCELERATED && (imapFolder == null || !imapFolder.isOpen()))) {
+
+                cachedUnreadCount = cacheUnreadCount;
+                return cacheUnreadCount;
+            }
+
+            // For ONLINE and ACCELERATED modes with server connection,
+            // use cache count if it's non-zero
+            if ((cacheMode == CacheMode.ONLINE || cacheMode == CacheMode.ACCELERATED) && cacheUnreadCount > 0) {
+                cachedUnreadCount = cacheUnreadCount;
+                return cacheUnreadCount;
+            }
+        }
+
         // For modes that use server search, get from IMAP
         if (cacheMode.shouldSearchOnServer()) {
             // Get IMAP folder with lazy initialization
@@ -1096,7 +1234,9 @@ public class CachedFolder extends Folder {
 
             if (imapFolder != null && imapFolder.isOpen()) {
                 try {
-                    return imapFolder.getUnreadMessageCount();
+                    int count = imapFolder.getUnreadMessageCount();
+                    cachedUnreadCount = count;
+                    return count;
                 } catch (MessagingException e) {
                     // Fall back to local cache if server check fails and mode allows it
                     if (!cacheMode.shouldReadFromServerAfterCacheMiss()) {
@@ -1107,21 +1247,9 @@ public class CachedFolder extends Folder {
             }
         }
 
-        // For other modes, count unread messages from cache
-        int unreadCount = 0;
-        if (cacheDir != null) {
-            try {
-                Message[] messages = getMessages();
-                for (Message message : messages) {
-                    if (!message.isSet(Flags.Flag.SEEN)) {
-                        unreadCount++;
-                    }
-                }
-            } catch (MessagingException e) {
-                LOGGER.log(Level.WARNING, "Error counting unread messages in cache", e);
-            }
-        }
-
+        // Fall back to counting unread messages from cache
+        int unreadCount = countCacheUnreadMessages();
+        cachedUnreadCount = unreadCount;
         return unreadCount;
     }
 
@@ -1144,6 +1272,9 @@ public class CachedFolder extends Folder {
             }
         }
 
+        // Since "new" status is a server-side concept and not persistently
+        // stored in our cache, we can't determine new message count from cache.
+        // We could potentially implement this by tracking message IDs we've seen.
         return 0;
     }
 
@@ -1151,7 +1282,18 @@ public class CachedFolder extends Folder {
     public boolean hasNewMessages() throws MessagingException {
         CacheMode cacheMode = cachedStore.getMode();
 
-        // Only modes that use server can determine if there are new messages
+        // For cache-based modes, we can determine if there are new messages
+        // by comparing the number of messages in the cache versus what we've seen before
+        // However, this is a very basic implementation and doesn't truly detect "new" messages.
+        if (cacheMode == CacheMode.OFFLINE || cacheMode == CacheMode.ACCELERATED) {
+            // This would require tracking previous message counts
+            // For now, we'll always return false for OFFLINE mode
+            if (cacheMode == CacheMode.OFFLINE) {
+                return false;
+            }
+        }
+
+        // For modes that use server, check IMAP
         if (cacheMode.shouldReadFromServer()) {
             // Get IMAP folder with lazy initialization
             Folder imapFolder = getImapFolder();
@@ -1220,6 +1362,10 @@ public class CachedFolder extends Folder {
                     }
                 }
             }
+
+            // Reset cached counts after expunging
+            cachedMessageCount = -1;
+            cachedUnreadCount = -1;
         }
 
         return expunged != null ? expunged : new CachedMessage[0];
@@ -1235,6 +1381,22 @@ public class CachedFolder extends Folder {
     public CachedMessage[] search(SearchTerm term) throws MessagingException {
         checkOpen();
         CacheMode cacheMode = cachedStore.getMode();
+
+        // For modes that prioritize cache, always search locally first
+        if (cacheMode == CacheMode.OFFLINE || cacheMode == CacheMode.ACCELERATED) {
+            LOGGER.info("Performing local cache search in " + cacheMode + " mode");
+            CachedMessage[] messages = getMessages();
+            List<CachedMessage> results = new ArrayList<>();
+
+            for (CachedMessage msg : messages) {
+                if (term.match(msg)) {
+                    results.add(msg);
+                }
+            }
+
+            LOGGER.info("Local search found " + results.size() + " messages");
+            return results.toArray(new CachedMessage[0]);
+        }
 
         // For modes that use server search, search on server
         if (cacheMode.shouldSearchOnServer()) {
@@ -1263,8 +1425,8 @@ public class CachedFolder extends Folder {
             }
         }
 
-        // For other modes or if server search fails, search in local cache
-        LOGGER.info("Performing local cache search");
+        // Fallback to local cache search
+        LOGGER.info("Performing local cache search as fallback");
         CachedMessage[] messages = getMessages();
         List<CachedMessage> results = new ArrayList<>();
 
@@ -1475,6 +1637,12 @@ public class CachedFolder extends Folder {
 
                     serverOperationSuccessful = true;
                     LOGGER.info("Server move operation completed successfully");
+
+                    // Reset cached counts for both folders after moving
+                    cachedMessageCount = -1;
+                    cachedUnreadCount = -1;
+                    destFolder.cachedMessageCount = -1;
+                    destFolder.cachedUnreadCount = -1;
                 } else {
                     LOGGER.warning("No IMAP messages to move");
                 }
@@ -1525,6 +1693,12 @@ public class CachedFolder extends Folder {
             }
 
             LOGGER.info("Local cache update completed");
+
+            // Reset cached counts for both folders after moving
+            cachedMessageCount = -1;
+            cachedUnreadCount = -1;
+            destFolder.cachedMessageCount = -1;
+            destFolder.cachedUnreadCount = -1;
         } else {
             LOGGER.warning("Cannot update local cache - cache directory is null");
         }
