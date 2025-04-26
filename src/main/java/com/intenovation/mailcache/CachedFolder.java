@@ -168,7 +168,7 @@ public class CachedFolder extends Folder {
      * @return true if the IMAP folder is ready, false otherwise
      * @throws MessagingException If there is an error initializing or opening the folder
      */
-    private boolean ensureImapFolderReady(int folderMode) throws MessagingException {
+    private boolean prepareImapFolderForOperation(int folderMode) throws MessagingException {
         CacheMode cacheMode = cachedStore.getMode();
 
         // Only proceed if we can use the server based on cache mode
@@ -298,7 +298,7 @@ public class CachedFolder extends Folder {
         if (cacheMode.shouldReadFromServer() || cacheMode.shouldReadFromServerAfterCacheMiss()) {
             try {
                 // Ensure IMAP folder is initialized
-                ensureImapFolderReady(Folder.READ_ONLY);
+                prepareImapFolderForOperation(Folder.READ_ONLY);
 
                 if (imapFolder != null) {
                     Folder[] imapFolders = imapFolder.list(pattern);
@@ -443,7 +443,7 @@ public class CachedFolder extends Folder {
         // Delete on server if possible
         try {
             // Ensure IMAP folder is initialized and opened in READ_WRITE mode
-            boolean imapReady = ensureImapFolderReady(Folder.READ_WRITE);
+            boolean imapReady = prepareImapFolderForOperation(Folder.READ_WRITE);
 
             if (imapReady) {
                 success = imapFolder.delete(recurse);
@@ -510,7 +510,7 @@ public class CachedFolder extends Folder {
         // Rename on server if possible
         try {
             // Ensure IMAP folder is initialized and opened in READ_WRITE mode
-            boolean imapReady = ensureImapFolderReady(Folder.READ_WRITE);
+            boolean imapReady = prepareImapFolderForOperation(Folder.READ_WRITE);
 
             if (imapReady && folder instanceof CachedFolder) {
                 CachedFolder cachedFolder = (CachedFolder) folder;
@@ -566,7 +566,7 @@ public class CachedFolder extends Folder {
         // For modes that use server, try to open IMAP folder
         if (cacheMode.shouldReadFromServer()) {
             try {
-                ensureImapFolderReady(mode);
+                prepareImapFolderForOperation(mode);
             } catch (MessagingException e) {
                 LOGGER.log(Level.WARNING, "Error opening IMAP folder: " + e.getMessage(), e);
                 // Continue with local operations in modes that allow fallback
@@ -917,7 +917,7 @@ public class CachedFolder extends Folder {
         // Ensure IMAP folder is ready - key fix for server connectivity
         boolean imapReady = false;
         try {
-            imapReady = ensureImapFolderReady(Folder.READ_WRITE);
+            imapReady = prepareImapFolderForOperation(Folder.READ_WRITE);
         } catch (MessagingException e) {
             LOGGER.log(Level.WARNING, "Error preparing IMAP folder", e);
             // Continue with local operations in modes that allow fallback
@@ -1122,7 +1122,7 @@ public class CachedFolder extends Folder {
         Message[] expunged = null;
 
         // Ensure IMAP folder is ready
-        boolean imapReady = ensureImapFolderReady(Folder.READ_WRITE);
+        boolean imapReady = prepareImapFolderForOperation(Folder.READ_WRITE);
 
         if (imapReady) {
             expunged = imapFolder.expunge();
@@ -1175,7 +1175,7 @@ public class CachedFolder extends Folder {
         if (cacheMode.shouldSearchOnServer() && imapFolder != null && imapFolder.isOpen()) {
             try {
                 // Ensure IMAP folder is ready
-                boolean imapReady = ensureImapFolderReady(Folder.READ_ONLY);
+                boolean imapReady = prepareImapFolderForOperation(Folder.READ_ONLY);
 
                 if (imapReady) {
                     Message[] serverResults = imapFolder.search(term);
@@ -1344,8 +1344,8 @@ public class CachedFolder extends Folder {
         boolean serverOperationSuccessful = false;
 
         // Ensure both source and destination IMAP folders are ready
-        boolean sourceImapReady = ensureImapFolderReady(Folder.READ_WRITE);
-        boolean destImapReady = destFolder.ensureImapFolderReady(Folder.READ_WRITE);
+        boolean sourceImapReady = prepareImapFolderForOperation(Folder.READ_WRITE);
+        boolean destImapReady = destFolder.prepareImapFolderForOperation(Folder.READ_WRITE);
 
         if (sourceImapReady && destImapReady) {
             try {
