@@ -178,6 +178,8 @@ public class CachedMessage extends MimeMessage {
 
     /**
      * Get the underlying IMAP message if available, or attempt to find it on the server
+     * When a message is found on the server, it is also cached for future access - implementing
+     * the "lazy loading" pattern for ONLINE mode.
      *
      * @return The IMAP message or null if not available or not found
      */
@@ -206,42 +208,75 @@ public class CachedMessage extends MimeMessage {
 
             // Get the Message-ID from properties
             String messageId = messageProperties.getProperty(PROP_MESSAGE_ID);
-            if (messageId == null || messageId.isEmpty()) {
-                return null;
-            }
+            boolean messageCached = false;
 
-            // Search for the message on the server using Message-ID
-            Message[] messages = imapFolder.search(new javax.mail.search.HeaderTerm("Message-ID", messageId));
-            if (messages != null && messages.length > 0) {
-                // Found the message, store the reference for future use
-                imapMessage = messages[0];
-                return imapMessage;
+            // First try to find by Message-ID
+            if (messageId != null && !messageId.isEmpty()) {
+                Message[] messages = imapFolder.search(new javax.mail.search.HeaderTerm("Message-ID", messageId));
+                if (messages != null && messages.length > 0) {
+                    // Found the message, store the reference for future use
+                    imapMessage = messages[0];
+                    messageCached = true;
+                    LOGGER.info("Found message on server by Message-ID: " + messageId);
+                }
             }
 
             // If we couldn't find it by Message-ID, try other criteria
-            // This is a fallback approach using sent date and subject
-            String subject = messageProperties.getProperty(PROP_SUBJECT);
-            String sentDateStr = messageProperties.getProperty(PROP_SENT_DATE);
-            if (subject != null && sentDateStr != null) {
-                try {
-                    java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-                    Date sentDate = sdf.parse(sentDateStr);
+            if (imapMessage == null) {
+                String subject = messageProperties.getProperty(PROP_SUBJECT);
+                String sentDateStr = messageProperties.getProperty(PROP_SENT_DATE);
+                if (subject != null && sentDateStr != null) {
+                    try {
+                        java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+                        Date sentDate = sdf.parse(sentDateStr);
 
-                    // Get all messages in the folder
-                    Message[] allMessages = imapFolder.getMessages();
-                    for (Message msg : allMessages) {
-                        // Check if subject and date match
-                        if (subject.equals(msg.getSubject()) &&
-                                sentDate.equals(msg.getSentDate())) {
-                            // Found a likely match
-                            imapMessage = msg;
-                            return imapMessage;
+                        // Get all messages in the folder
+                        Message[] allMessages = imapFolder.getMessages();
+                        for (Message msg : allMessages) {
+                            // Check if subject and date match
+                            if (subject.equals(msg.getSubject()) &&
+                                    sentDate.equals(msg.getSentDate())) {
+                                // Found a likely match
+                                imapMessage = msg;
+                                messageCached = true;
+                                LOGGER.info("Found message on server by subject/date: " + subject);
+                                break;
+                            }
                         }
+                    } catch (java.text.ParseException e) {
+                        LOGGER.log(Level.WARNING, "Error parsing sent date: " + sentDateStr, e);
                     }
-                } catch (java.text.ParseException e) {
-                    LOGGER.log(Level.WARNING, "Error parsing sent date: " + sentDateStr, e);
                 }
             }
+
+            // If we found the message on the server but it wasn't in our cache yet
+            // (ONLINE mode with server search), save it to cache
+            if (imapMessage != null && !messageCached) {
+                LOGGER.info("Lazy loading: Message found on server but not in cache. Saving to cache.");
+
+                // Ensure we have a proper message directory
+                if (messageDir == null) {
+                    // Generate a directory name for the message
+                    String dirName = MassageDirName.formatMessageDirName(imapMessage);
+                    File messagesDir = new File(folder.getCacheDir(), "messages");
+                    if (!messagesDir.exists()) {
+                        messagesDir.mkdirs();
+                    }
+                    this.messageDir = new File(messagesDir, dirName);
+                    if (!this.messageDir.exists()) {
+                        this.messageDir.mkdirs();
+                    }
+                }
+
+                // Save the message content to cache
+                saveToCache();
+
+                // Notify listeners that a new message was cached
+                fireChangeEvent(new MailCacheChangeEvent(this,
+                        MailCacheChangeEvent.ChangeType.MESSAGE_ADDED, this));
+            }
+
+            return imapMessage;
         } catch (MessagingException e) {
             LOGGER.log(Level.WARNING, "Error finding IMAP message: " + e.getMessage(), e);
         }
@@ -353,6 +388,10 @@ public class CachedMessage extends MimeMessage {
                         }
                     }
 
+                    // Cache other commonly used properties
+                    subject = messageProperties.getProperty(PROP_SUBJECT);
+                    from = messageProperties.getProperty(PROP_FROM);
+
                     // Check for content availability
                     hasHtmlContent = "true".equals(messageProperties.getProperty(PROP_HAS_HTML_CONTENT, "false"));
                     hasTextContent = "true".equals(messageProperties.getProperty(PROP_HAS_TEXT_CONTENT, "false"));
@@ -437,21 +476,26 @@ public class CachedMessage extends MimeMessage {
                 Date msgSentDate = imapMessage.getSentDate();
                 if (msgSentDate != null) {
                     messageProperties.setProperty(PROP_SENT_DATE, sdf.format(msgSentDate));
+                    this.sentDate = msgSentDate;
                 }
 
                 // Save received date
                 Date msgReceivedDate = imapMessage.getReceivedDate();
                 if (msgReceivedDate != null) {
                     messageProperties.setProperty(PROP_RECEIVED_DATE, sdf.format(msgReceivedDate));
+                    this.receivedDate = msgReceivedDate;
                 }
 
-                messageProperties.setProperty(PROP_SUBJECT,
-                        imapMessage.getSubject() != null ?
-                                imapMessage.getSubject() : "");
+                // Save subject
+                String msgSubject = imapMessage.getSubject();
+                this.subject = msgSubject != null ? msgSubject : "";
+                messageProperties.setProperty(PROP_SUBJECT, this.subject);
 
+                // Save from address
                 Address[] from = imapMessage.getFrom();
                 if (from != null && from.length > 0) {
-                    messageProperties.setProperty(PROP_FROM, from[0].toString());
+                    this.from = from[0].toString();
+                    messageProperties.setProperty(PROP_FROM, this.from);
                 }
 
                 // Save reply-to addresses
@@ -462,7 +506,8 @@ public class CachedMessage extends MimeMessage {
                         if (i > 0) replyToStr.append(", ");
                         replyToStr.append(replyTo[i].toString());
                     }
-                    messageProperties.setProperty(PROP_REPLY_TO, replyToStr.toString());
+                    this.replyTo = replyToStr.toString();
+                    messageProperties.setProperty(PROP_REPLY_TO, this.replyTo);
                 }
 
                 // Save recipient addresses
@@ -487,6 +532,7 @@ public class CachedMessage extends MimeMessage {
                     messageProperties.setProperty(PROP_CC, ccStr.toString());
                 }
 
+                // Save Message-ID
                 String[] headers = imapMessage.getHeader("Message-ID");
                 if (headers != null && headers.length > 0) {
                     messageProperties.setProperty(PROP_MESSAGE_ID, headers[0]);
@@ -545,9 +591,7 @@ public class CachedMessage extends MimeMessage {
                                 (disposition.equalsIgnoreCase(Part.ATTACHMENT) ||
                                         disposition.equalsIgnoreCase(Part.INLINE))) {
 
-                            // Only save attachments if configured to do so
-                            CachedStore store = (CachedStore) folder.getStore();
-
+                            // Save attachments
                             saveAttachment(part);
 
                         } else {
@@ -570,9 +614,6 @@ public class CachedMessage extends MimeMessage {
                             }
                         }
                     }
-                    // Notify listeners
-                    fireChangeEvent(new MailCacheChangeEvent(this,
-                            MailCacheChangeEvent.ChangeType.MESSAGE_ADDED, this));
                 }
 
                 // Now save both formats if found
@@ -647,6 +688,10 @@ public class CachedMessage extends MimeMessage {
                         writer.write("USER:" + flag + "\n");
                     }
                 }
+
+                // Update our internal flags object
+                this.flags = (Flags) msgFlags.clone();
+
             } catch (IOException e) {
                 LOGGER.log(Level.WARNING, "Error saving message flags", e);
             }
@@ -709,9 +754,6 @@ public class CachedMessage extends MimeMessage {
             attachmentsDir.mkdirs();
         }
 
-        // Only save attachments if configured to do so
-        CachedStore store = (CachedStore) folder.getStore();
-
         // Save the attachment
         File attachmentFile = new File(attachmentsDir, fileName);
         try (InputStream is = part.getInputStream();
@@ -723,7 +765,6 @@ public class CachedMessage extends MimeMessage {
                 fos.write(buffer, 0, bytesRead);
             }
         }
-
     }
 
     /**
@@ -746,6 +787,35 @@ public class CachedMessage extends MimeMessage {
         return false;
     }
 
+    /**
+     * Handle a cache miss according to the current CacheMode.
+     * If the mode allows reading from server after a cache miss (like in ONLINE mode),
+     * this method will attempt to fetch the message from the server and save it to cache.
+     *
+     * @param methodName The name of the method that had the cache miss, for logging
+     * @return true if the message was found on server, false otherwise
+     */
+    private boolean handleCacheMiss(String methodName) {
+        CachedStore store = (CachedStore) folder.getStore();
+        CacheMode mode = store.getMode();
+
+        // Check if we can try the server after a cache miss
+        if (mode.shouldReadFromServerAfterCacheMiss()) {
+            LOGGER.fine("Cache miss in " + methodName + " - attempting to fetch from server");
+
+            // Try to get/find the IMAP message
+            Message msg = getImapMessage();
+            if (msg != null) {
+                LOGGER.info("Successfully fetched message from server after cache miss in " + methodName);
+                return true;
+            } else {
+                LOGGER.warning("Failed to fetch message from server after cache miss in " + methodName);
+            }
+        }
+
+        return false;
+    }
+
     @Override
     public String getSubject() throws MessagingException {
         // Check if we should use server data
@@ -758,22 +828,16 @@ public class CachedMessage extends MimeMessage {
             loadFromCache();
         }
 
-        if (messageProperties != null) {
-            subject = messageProperties.getProperty(PROP_SUBJECT);
+        if (subject != null) {
             return subject;
         }
 
-        // If we have a cache miss and we're in a mode that allows fallback to server, try that
-        CachedStore store = (CachedStore) folder.getStore();
-        if (store.getMode().shouldReadFromServerAfterCacheMiss()) {
-            // Try to get/find the IMAP message
-            Message msg = getImapMessage();
-            if (msg != null) {
-                try {
-                    return msg.getSubject();
-                } catch (MessagingException e) {
-                    LOGGER.log(Level.WARNING, "Error getting subject from server after cache miss", e);
-                }
+        // Handle cache miss if needed
+        if (handleCacheMiss("getSubject")) {
+            try {
+                return imapMessage.getSubject();
+            } catch (MessagingException e) {
+                LOGGER.log(Level.WARNING, "Error getting subject from server after cache miss", e);
             }
         }
 
@@ -792,28 +856,20 @@ public class CachedMessage extends MimeMessage {
             loadFromCache();
         }
 
-        if (messageProperties != null) {
-            String from = messageProperties.getProperty(PROP_FROM);
-            if (from != null && !from.isEmpty()) {
-                try {
-                    return new Address[]{new InternetAddress(from)};
-                } catch (Exception e) {
-                    LOGGER.log(Level.WARNING, "Error parsing From address", e);
-                }
+        if (from != null && !from.isEmpty()) {
+            try {
+                return new Address[]{new InternetAddress(from)};
+            } catch (Exception e) {
+                LOGGER.log(Level.WARNING, "Error parsing From address", e);
             }
         }
 
-        // If we have a cache miss and we're in a mode that allows fallback to server, try that
-        CachedStore store = (CachedStore) folder.getStore();
-        if (store.getMode().shouldReadFromServerAfterCacheMiss()) {
-            // Try to get/find the IMAP message
-            Message msg = getImapMessage();
-            if (msg != null) {
-                try {
-                    return msg.getFrom();
-                } catch (MessagingException e) {
-                    LOGGER.log(Level.WARNING, "Error getting From address from server after cache miss", e);
-                }
+        // Handle cache miss if needed
+        if (handleCacheMiss("getFrom")) {
+            try {
+                return imapMessage.getFrom();
+            } catch (MessagingException e) {
+                LOGGER.log(Level.WARNING, "Error getting From address from server after cache miss", e);
             }
         }
 
@@ -836,37 +892,12 @@ public class CachedMessage extends MimeMessage {
             return sentDate;
         }
 
-        if (messageProperties != null) {
-            String dateStr = messageProperties.getProperty(PROP_SENT_DATE);
-            if (dateStr != null && !dateStr.isEmpty()) {
-                try {
-                    // Try to parse using standard format first
-                    try {
-                        java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-                        sentDate = sdf.parse(dateStr);
-                        return sentDate;
-                    } catch (java.text.ParseException pe) {
-                        // Fall back to Date constructor if specific format fails
-                        sentDate = new Date(dateStr);
-                        return sentDate;
-                    }
-                } catch (Exception e) {
-                    LOGGER.log(Level.WARNING, "Error parsing sent date: " + dateStr, e);
-                }
-            }
-        }
-
-        // If we have a cache miss and we're in a mode that allows fallback to server, try that
-        CachedStore store = (CachedStore) folder.getStore();
-        if (store.getMode().shouldReadFromServerAfterCacheMiss()) {
-            // Try to get/find the IMAP message
-            Message msg = getImapMessage();
-            if (msg != null) {
-                try {
-                    return msg.getSentDate();
-                } catch (MessagingException e) {
-                    LOGGER.log(Level.WARNING, "Error getting sent date from server after cache miss", e);
-                }
+        // Handle cache miss if needed
+        if (handleCacheMiss("getSentDate")) {
+            try {
+                return imapMessage.getSentDate();
+            } catch (MessagingException e) {
+                LOGGER.log(Level.WARNING, "Error getting sent date from server after cache miss", e);
             }
         }
 
@@ -892,23 +923,16 @@ public class CachedMessage extends MimeMessage {
             return textContent;
         }
 
-        // If we have a cache miss and we're in a mode that allows fallback to server, try that
-        CachedStore store = (CachedStore) folder.getStore();
-        if (store.getMode().shouldReadFromServerAfterCacheMiss()) {
-            // Try to get/find the IMAP message
-            Message msg = getImapMessage();
-            if (msg != null) {
-                try {
-                    return msg.getContent();
-                } catch (MessagingException | IOException e) {
-                    LOGGER.log(Level.WARNING, "Error getting content from server after cache miss", e);
-                }
+        // Handle cache miss if needed
+        if (handleCacheMiss("getContent")) {
+            try {
+                return imapMessage.getContent();
+            } catch (MessagingException | IOException e) {
+                LOGGER.log(Level.WARNING, "Error getting content from server after cache miss", e);
             }
         }
 
-        // Notify listeners
-        fireChangeEvent(new MailCacheChangeEvent(this,
-                MailCacheChangeEvent.ChangeType.MESSAGE_ADDED, this));
+        // Empty string is better than null for content
         return "";
     }
 
@@ -948,32 +972,63 @@ public class CachedMessage extends MimeMessage {
             return htmlContent;
         }
 
-        // If we have a cache miss and we're in a mode that allows fallback to server, try that
-        CachedStore store = (CachedStore) folder.getStore();
-        if (store.getMode().shouldReadFromServerAfterCacheMiss()) {
-            // Try to get/find the IMAP message
-            Message msg = getImapMessage();
-            if (msg != null) {
-                try {
-                    Object content = msg.getContent();
-                    if (content instanceof String) {
-                        if (isHtmlContent(msg, content)) {
-                            return (String) content;
-                        }
-                    } else if (content instanceof Multipart) {
-                        StringBuilder html = new StringBuilder();
-                        processMimePartContent(msg, new StringBuilder(), html);
-                        if (html.length() > 0) {
-                            return html.toString();
-                        }
+        // Handle cache miss if needed
+        if (handleCacheMiss("getHtmlContent")) {
+            try {
+                Object content = imapMessage.getContent();
+                if (content instanceof String) {
+                    if (isHtmlContent(imapMessage, content)) {
+                        String htmlStr = (String) content;
+                        // Cache the HTML content
+                        cacheHtmlContent(htmlStr);
+                        return htmlStr;
                     }
-                } catch (IOException | MessagingException e) {
-                    LOGGER.log(Level.WARNING, "Error getting HTML content from server after cache miss", e);
+                } else if (content instanceof Multipart) {
+                    StringBuilder html = new StringBuilder();
+                    processMimePartContent(imapMessage, new StringBuilder(), html);
+                    if (html.length() > 0) {
+                        String htmlStr = html.toString();
+                        // Cache the HTML content
+                        cacheHtmlContent(htmlStr);
+                        return htmlStr;
+                    }
                 }
+            } catch (IOException | MessagingException e) {
+                LOGGER.log(Level.WARNING, "Error getting HTML content from server after cache miss", e);
             }
         }
 
         return null;
+    }
+
+    /**
+     * Helper method to cache only HTML content
+     */
+    private void cacheHtmlContent(String htmlContent) {
+        if (messageDir == null || !messageDir.exists()) {
+            return;
+        }
+
+        try {
+            // Save HTML content
+            if (htmlContent != null && !htmlContent.isEmpty()) {
+                try (FileWriter writer = new FileWriter(
+                        new File(messageDir, FILE_CONTENT_HTML))) {
+                    writer.write(htmlContent);
+                }
+                this.htmlContent = htmlContent;
+                this.hasHtmlContent = true;
+                messageProperties.setProperty(PROP_HAS_HTML_CONTENT, "true");
+
+                // Update properties file
+                try (FileOutputStream fos = new FileOutputStream(
+                        new File(messageDir, FILE_MESSAGE_PROPERTIES))) {
+                    messageProperties.store(fos, "Mail Message Properties");
+                }
+            }
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Error caching HTML content", e);
+        }
     }
 
     /**
@@ -1065,47 +1120,42 @@ public class CachedMessage extends MimeMessage {
             }
         }
 
-        // If we have a cache miss and we're in a mode that allows fallback to server, try that
-        CachedStore store = (CachedStore) folder.getStore();
-        if (store.getMode().shouldReadFromServerAfterCacheMiss()) {
-            // Try to get/find the IMAP message
-            Message msg = getImapMessage();
-            if (msg != null) {
-                try {
-                    Object content = msg.getContent();
-                    if (content instanceof String) {
-                        if (!isHtmlContent(msg, content)) {
-                            String textStr = (String) content;
-                            // Cache the text content
-                            cacheTextContent(textStr);
-                            return textStr;
-                        } else {
-                            // Convert HTML to text using Jsoup
-                            String htmlStr = (String) content;
-                            String textStr = Jsoup.parse(htmlStr).wholeText();
-                            // Store both versions in cache
-                            cacheHtmlAndTextContent(htmlStr, textStr);
-                            return textStr;
-                        }
-                    } else if (content instanceof Multipart) {
-                        StringBuilder text = new StringBuilder();
-                        StringBuilder html = new StringBuilder();
-                        processMimePartContent(msg, text, html);
-
-                        if (text.length() > 0) {
-                            String textStr = text.toString();
-                            cacheTextContent(textStr);
-                            return textStr;
-                        } else if (html.length() > 0) {
-                            String htmlStr = html.toString();
-                            String textStr = Jsoup.parse(htmlStr).wholeText();
-                            cacheHtmlAndTextContent(htmlStr, textStr);
-                            return textStr;
-                        }
+        // Handle cache miss if needed
+        if (handleCacheMiss("getTextContent")) {
+            try {
+                Object content = imapMessage.getContent();
+                if (content instanceof String) {
+                    if (!isHtmlContent(imapMessage, content)) {
+                        String textStr = (String) content;
+                        // Cache the text content
+                        cacheTextContent(textStr);
+                        return textStr;
+                    } else {
+                        // Convert HTML to text using Jsoup
+                        String htmlStr = (String) content;
+                        String textStr = Jsoup.parse(htmlStr).wholeText();
+                        // Store both versions in cache
+                        cacheHtmlAndTextContent(htmlStr, textStr);
+                        return textStr;
                     }
-                } catch (IOException | MessagingException e) {
-                    LOGGER.log(Level.WARNING, "Error getting text content from server after cache miss", e);
+                } else if (content instanceof Multipart) {
+                    StringBuilder text = new StringBuilder();
+                    StringBuilder html = new StringBuilder();
+                    processMimePartContent(imapMessage, text, html);
+
+                    if (text.length() > 0) {
+                        String textStr = text.toString();
+                        cacheTextContent(textStr);
+                        return textStr;
+                    } else if (html.length() > 0) {
+                        String htmlStr = html.toString();
+                        String textStr = Jsoup.parse(htmlStr).wholeText();
+                        cacheHtmlAndTextContent(htmlStr, textStr);
+                        return textStr;
+                    }
                 }
+            } catch (IOException | MessagingException e) {
+                LOGGER.log(Level.WARNING, "Error getting text content from server after cache miss", e);
             }
         }
 
@@ -1212,7 +1262,36 @@ public class CachedMessage extends MimeMessage {
             loadFromCache();
         }
 
-        return hasHtmlContent;
+        if (hasHtmlContent) {
+            return true;
+        }
+
+        // Handle cache miss if needed
+        if (handleCacheMiss("hasHtmlContent")) {
+            try {
+                Object msgContent = imapMessage.getContent();
+                if (msgContent instanceof String) {
+                    boolean html = isHtmlContent(imapMessage, msgContent);
+                    // Update cache if it's HTML
+                    if (html) {
+                        cacheHtmlContent((String) msgContent);
+                    }
+                    return html;
+                } else if (msgContent instanceof Multipart) {
+                    StringBuilder html = new StringBuilder();
+                    processMimePartContent(imapMessage, new StringBuilder(), html);
+                    boolean hasHtml = html.length() > 0;
+                    if (hasHtml) {
+                        cacheHtmlContent(html.toString());
+                    }
+                    return hasHtml;
+                }
+            } catch (IOException | MessagingException e) {
+                LOGGER.log(Level.WARNING, "Error checking HTML content from server after cache miss", e);
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -1243,7 +1322,35 @@ public class CachedMessage extends MimeMessage {
             loadFromCache();
         }
 
-        return hasTextContent;
+        if (hasTextContent) {
+            return true;
+        }
+
+        // Handle cache miss if needed
+        if (handleCacheMiss("hasTextContent")) {
+            try {
+                Object msgContent = imapMessage.getContent();
+                if (msgContent instanceof String) {
+                    boolean isText = !isHtmlContent(imapMessage, msgContent);
+                    if (isText) {
+                        cacheTextContent((String) msgContent);
+                    }
+                    return isText;
+                } else if (msgContent instanceof Multipart) {
+                    StringBuilder text = new StringBuilder();
+                    processMimePartContent(imapMessage, text, new StringBuilder());
+                    boolean hasText = text.length() > 0;
+                    if (hasText) {
+                        cacheTextContent(text.toString());
+                    }
+                    return hasText;
+                }
+            } catch (IOException | MessagingException e) {
+                LOGGER.log(Level.WARNING, "Error checking text content from server after cache miss", e);
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -1253,22 +1360,8 @@ public class CachedMessage extends MimeMessage {
      * @throws MessagingException If there is an error checking content type
      */
     public boolean isHtmlContent() throws MessagingException {
-        // Check if we should use server data
-        if (shouldUseServerForReading()) {
-            try {
-                return hasHtmlContent();
-            } catch (Exception e) {
-                LOGGER.log(Level.WARNING, "Error checking HTML content from IMAP", e);
-            }
-        }
-
-        // Otherwise use cached value
-        if (!contentLoaded) {
-            loadFromCache();
-        }
-
         // HTML is preferred if both are available
-        return hasHtmlContent;
+        return hasHtmlContent();
     }
 
     @Override
@@ -1291,9 +1384,26 @@ public class CachedMessage extends MimeMessage {
         if (imapMessage != null) {
             try {
                 imapMessage.setFlags(flag, set);
+                LOGGER.fine("Updated flags on server: " + flag + " -> " + set);
             } catch (MessagingException e) {
                 LOGGER.log(Level.WARNING, "Error updating flags on server: " + e.getMessage(), e);
                 throw e; // Don't continue if server operation failed
+            }
+        } else {
+            // In ONLINE mode, we need to try to find the message first
+            if (mode.shouldSearchOnServer()) {
+                Message msg = getImapMessage();
+                if (msg != null) {
+                    try {
+                        msg.setFlags(flag, set);
+                        LOGGER.fine("Updated flags on server (after lazy loading): " + flag + " -> " + set);
+                    } catch (MessagingException e) {
+                        LOGGER.log(Level.WARNING, "Error updating flags on server after lazy loading: " + e.getMessage(), e);
+                        throw e;
+                    }
+                } else {
+                    throw new MessagingException("Cannot update flags - message not found on server");
+                }
             }
         }
 
@@ -1356,7 +1466,54 @@ public class CachedMessage extends MimeMessage {
             loadFromCache();
         }
 
-        return flags;
+        if (flags != null) {
+            return flags;
+        }
+
+        // Handle cache miss if needed
+        if (handleCacheMiss("getFlags")) {
+            try {
+                Flags serverFlags = imapMessage.getFlags();
+                // Update local cache
+                this.flags = (Flags) serverFlags.clone();
+
+                // Save to disk
+                try (FileWriter writer = new FileWriter(
+                        new File(messageDir, FILE_FLAGS_TXT))) {
+                    if (flags.contains(Flags.Flag.SEEN)) {
+                        writer.write("SEEN\n");
+                    }
+                    if (flags.contains(Flags.Flag.ANSWERED)) {
+                        writer.write("ANSWERED\n");
+                    }
+                    if (flags.contains(Flags.Flag.DELETED)) {
+                        writer.write("DELETED\n");
+                    }
+                    if (flags.contains(Flags.Flag.FLAGGED)) {
+                        writer.write("FLAGGED\n");
+                    }
+                    if (flags.contains(Flags.Flag.DRAFT)) {
+                        writer.write("DRAFT\n");
+                    }
+                    if (flags.contains(Flags.Flag.RECENT)) {
+                        writer.write("RECENT\n");
+                    }
+                    String[] userFlags = flags.getUserFlags();
+                    for (String userFlag : userFlags) {
+                        writer.write("USER:" + userFlag + "\n");
+                    }
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING, "Error writing flags to cache after server fetch", e);
+                }
+
+                return serverFlags;
+            } catch (MessagingException e) {
+                LOGGER.log(Level.WARNING, "Error getting flags from server after cache miss", e);
+            }
+        }
+
+        // Return default flags
+        return new Flags();
     }
 
     @Override
@@ -1371,7 +1528,20 @@ public class CachedMessage extends MimeMessage {
             loadFromCache();
         }
 
-        return flags.contains(flag);
+        if (flags != null) {
+            return flags.contains(flag);
+        }
+
+        // Handle cache miss if needed
+        if (handleCacheMiss("isSet")) {
+            try {
+                return imapMessage.isSet(flag);
+            } catch (MessagingException e) {
+                LOGGER.log(Level.WARNING, "Error checking flag on server after cache miss", e);
+            }
+        }
+
+        return false;
     }
 
     @Override
@@ -1386,11 +1556,30 @@ public class CachedMessage extends MimeMessage {
             loadFromCache();
         }
 
+        // Get size from properties if available
+        String sizeStr = messageProperties.getProperty(PROP_SIZE_BYTES);
+        if (sizeStr != null && !sizeStr.isEmpty()) {
+            try {
+                return Integer.parseInt(sizeStr);
+            } catch (NumberFormatException e) {
+                LOGGER.log(Level.FINE, "Error parsing size property", e);
+            }
+        }
+
         // Return size of preferred content
         if (hasHtmlContent) {
             return htmlContent != null ? htmlContent.length() : 0;
         } else if (hasTextContent) {
             return textContent != null ? textContent.length() : 0;
+        }
+
+        // Handle cache miss if needed
+        if (handleCacheMiss("getSize")) {
+            try {
+                return imapMessage.getSize();
+            } catch (MessagingException e) {
+                LOGGER.log(Level.WARNING, "Error getting size from server after cache miss", e);
+            }
         }
 
         return 0;
@@ -1419,17 +1608,42 @@ public class CachedMessage extends MimeMessage {
                     new ByteArrayInputStream(new byte[0]);
         }
 
-        // If we have a cache miss and we're in a mode that allows fallback to server, try that
-        CachedStore store = (CachedStore) folder.getStore();
-        if (store.getMode().shouldReadFromServerAfterCacheMiss()) {
-            // Try to get/find the IMAP message
-            Message msg = getImapMessage();
-            if (msg != null) {
-                try {
-                    return msg.getInputStream();
-                } catch (IOException | MessagingException e) {
-                    LOGGER.log(Level.WARNING, "Error getting input stream from server after cache miss", e);
+        // Handle cache miss if needed
+        if (handleCacheMiss("getInputStream")) {
+            try {
+                // Get input stream from server
+                InputStream is = imapMessage.getInputStream();
+
+                // For small messages, we can cache the content synchronously
+                if (imapMessage.getSize() < 1024 * 1024) { // 1MB threshold
+                    // Read content from stream into a buffer
+                    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                    byte[] buffer = new byte[8192];
+                    int bytesRead;
+                    while ((bytesRead = is.read(buffer)) != -1) {
+                        baos.write(buffer, 0, bytesRead);
+                    }
+
+                    // Convert to string and determine content type
+                    String content = baos.toString(StandardCharsets.UTF_8.name());
+                    boolean isHtml = content.toLowerCase().contains("<html") ||
+                            content.toLowerCase().contains("<!doctype html");
+
+                    // Cache according to content type
+                    if (isHtml) {
+                        cacheHtmlContent(content);
+                    } else {
+                        cacheTextContent(content);
+                    }
+
+                    // Return a new stream from the cached content
+                    return new ByteArrayInputStream(baos.toByteArray());
                 }
+
+                // For large messages, just return the stream directly without caching
+                return is;
+            } catch (IOException | MessagingException e) {
+                LOGGER.log(Level.WARNING, "Error getting input stream from server after cache miss", e);
             }
         }
 
@@ -1661,6 +1875,90 @@ public class CachedMessage extends MimeMessage {
         }
 
         // For non-PDF attachments, return null or potentially add other converters here
+        return null;
+    }
+
+    /**
+     * Get recipients by type
+     */
+    @Override
+    public Address[] getRecipients(Message.RecipientType type) throws MessagingException {
+        // Check if we should use server data
+        if (shouldUseServerForReading()) {
+            return imapMessage.getRecipients(type);
+        }
+
+        // Otherwise use cached value
+        if (!contentLoaded) {
+            loadFromCache();
+        }
+
+        // Parse from properties
+        if (type == Message.RecipientType.TO) {
+            String toStr = messageProperties.getProperty(PROP_TO);
+            if (toStr != null && !toStr.isEmpty()) {
+                try {
+                    return InternetAddress.parse(toStr);
+                } catch (Exception e) {
+                    LOGGER.log(Level.WARNING, "Error parsing TO addresses", e);
+                }
+            }
+        } else if (type == Message.RecipientType.CC) {
+            String ccStr = messageProperties.getProperty(PROP_CC);
+            if (ccStr != null && !ccStr.isEmpty()) {
+                try {
+                    return InternetAddress.parse(ccStr);
+                } catch (Exception e) {
+                    LOGGER.log(Level.WARNING, "Error parsing CC addresses", e);
+                }
+            }
+        }
+
+        // Handle cache miss
+        if (handleCacheMiss("getRecipients")) {
+            try {
+                return imapMessage.getRecipients(type);
+            } catch (MessagingException e) {
+                LOGGER.log(Level.WARNING, "Error getting recipients from server after cache miss", e);
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Get reply-to addresses
+     */
+    @Override
+    public Address[] getReplyTo() throws MessagingException {
+        // Check if we should use server data
+        if (shouldUseServerForReading()) {
+            return imapMessage.getReplyTo();
+        }
+
+        // Otherwise use cached value
+        if (!contentLoaded) {
+            loadFromCache();
+        }
+
+        String replyToStr = messageProperties.getProperty(PROP_REPLY_TO);
+        if (replyToStr != null && !replyToStr.isEmpty()) {
+            try {
+                return InternetAddress.parse(replyToStr);
+            } catch (Exception e) {
+                LOGGER.log(Level.WARNING, "Error parsing REPLY-TO addresses", e);
+            }
+        }
+
+        // Handle cache miss
+        if (handleCacheMiss("getReplyTo")) {
+            try {
+                return imapMessage.getReplyTo();
+            } catch (MessagingException e) {
+                LOGGER.log(Level.WARNING, "Error getting reply-to from server after cache miss", e);
+            }
+        }
+
         return null;
     }
 }
