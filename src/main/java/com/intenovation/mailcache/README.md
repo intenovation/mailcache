@@ -14,13 +14,49 @@ A robust solution for efficient email access with flexible online/offline capabi
 - **Safe Defaults**: Delete operations are restricted to DESTRUCTIVE mode only
 - **Transparent Caching**: Access to local message storage for adding supplementary files
 - **Multi-User Support**: Cache structure organizes data by username, allowing multiple accounts in one archive
+- **Transactional Integrity**: Each write/delete operation follows a strict transaction flow to ensure data consistency
+- **Server Synchronization**: After operations complete, the cache is updated from the server to ensure accuracy
+- **Complete Message Caching**: All messages and attachments are fully downloaded for offline access
+- **Information Preservation**: Instead of deleting data, it's moved to archive folders to fulfill record-keeping requirements
+
+## Core Principles
+
+### Transactional Operations
+Every write or delete operation follows a strict transaction pattern:
+- First execute the operation on the server
+- Then update the local cache accordingly
+- Finally, commit the changes on the server (by closing and reopening connections if necessary)
+
+This approach ensures that server operations are always prioritized, preventing data inconsistencies if operations fail.
+
+### Server-Cache Synchronization
+The cache always aims to be an accurate representation of the server:
+- After write operations complete, we look for the message or folder on the server
+- We then download the server version to ensure the cache has the most accurate data
+- For append operations, we handle new message IDs by downloading the newly created messages
+- This ensures the cache always accurately represents what's on the server
+
+### Offline Preparation
+To ensure smooth offline operation:
+- The entire message and all attachments are downloaded whenever a message is accessed
+- If attachments with the same name are already downloaded, they aren't downloaded again (except in REFRESH mode)
+- Message properties, flags, and content are all cached for complete offline access
+- This approach enables seamless transitions between online and offline modes
+
+### Data Loss Prevention
+To meet record-keeping requirements and prevent accidental data loss:
+- Information is never truly deleted from the system
+- When deletion occurs, items are moved to archived folders (archived_messages or archived_folders)
+- This architecture enables recovery from accidental deletions
+- It also ensures that all received invoices and important communications are permanently preserved
 
 ## Key Features
 
-- **Four Operation Modes**:
+- **Five Operation Modes**:
   - **Online**: Searches happen on the server while reading uses the local cache for speed
   - **Offline**: All operations use the local cache with no server connectivity required
   - **Accelerated**: Reading and searching use local cache, writing happens both locally and on the server
+  - **Refresh**: Always gets latest from server, overwrites cache completely
   - **Destructive**: The only mode that allows deleting messages and folders (use with caution)
 - **Permanent Archiving**: Messages deleted from the server are archived locally and never truly deleted
 - **Standard API**: Fully compatible with the JavaMail API
@@ -214,15 +250,51 @@ In **Accelerated** mode:
 
 This is the default mode, providing the best balance of performance and functionality.
 
+### Refresh Mode
+
+In **Refresh** mode:
+- **Reading**: Messages are always fetched from the server, and the cache is overwritten
+- **Searching**: Search operations are performed on the server
+- **Writing**: Changes are sent to the server first, then updated in the cache
+- **Deletion**: Not allowed unless in DESTRUCTIVE mode
+
+Use this mode when you need to ensure the cache contains the most up-to-date information.
+
 ### Destructive Mode
 
 In **Destructive** mode:
-- All operations from Accelerated mode, plus:
+- All operations from Online mode, plus:
 - **Deletion**: Allows deleting messages and folders from the server
 - **Archiving**: Messages deleted from server are archived locally, never truly deleted
 - **Restoration**: Archived messages can be restored from the local archive
 
 This mode should be used with caution, and typically only for administrative operations.
+
+## Transaction Flow Example
+
+For a typical write operation such as appending a message to a folder:
+
+1. First, the operation is attempted on the server:
+   ```java
+   // First try to execute on the server
+   imapFolder.appendMessages(imapMessages);
+   ```
+
+2. Then, if server operation succeeds, local cache is updated:
+   ```java
+   // Then update local cache
+   new CachedMessage(this, msg);
+   ```
+
+3. Finally, changes are committed and verified on the server:
+   ```java
+   // Server-cache synchronization
+   // In real implementation, we look for the message on the server
+   // and update our local cache with the server version to ensure
+   // we have the correct message ID and all metadata
+   ```
+
+This ensures that operations are executed in a consistent manner that prioritizes server state.
 
 ## Advanced Features
 
@@ -269,6 +341,9 @@ The cache is organized on disk as follows:
 │   │   └── archived_messages/      # Messages archived from INBOX
 │   │       └── 2024-01-10_Old_Report/
 │   │           └── ...
+│   ├── archived_folders/           # Folders that have been "deleted"
+│   │   └── OldProjects_timestamp/  # Renamed folders stored here rather than deleted
+│   │       └── ...
 │   └── Sent/
 │       └── messages/
 │           └── ...
@@ -286,6 +361,7 @@ The cache is organized on disk as follows:
 - **Disk Space**: Since message content and attachments are stored permanently on disk, ensure adequate space
 - **Search Performance**: In OFFLINE and ACCELERATED modes, search is limited by the local indexing performance
 - **Multi-User Efficiency**: Each user has their own isolated cache, preventing cross-user performance impacts
+- **Transaction Overhead**: The transactional approach adds some overhead but ensures data integrity
 
 ## Requirements
 
