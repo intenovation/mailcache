@@ -5,9 +5,14 @@ import javax.mail.internet.MimeMessage;
 import javax.mail.search.SearchTerm;
 import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.FileWriter;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
+import java.util.Properties;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -253,6 +258,44 @@ public class CachedFolder extends Folder {
         return folder.isOpen();
     }
 
+    /**
+     * Commit changes to the server by closing and reopening the connection
+     * This ensures all changes are flushed to the server
+     *
+     * @param expunge Whether to expunge deleted messages
+     * @return true if the commit was successful, false otherwise
+     */
+    private boolean commitServerChanges(boolean expunge) {
+        CacheMode cacheMode = cachedStore.getMode();
+
+        // Only commit in modes that use the server
+        if (!cacheMode.shouldReadFromServer()) {
+            return true;
+        }
+
+        if (imapFolder != null && imapFolder.isOpen()) {
+            try {
+                // Get current mode to reopen with same mode
+                int currentMode = imapFolder.getMode();
+
+                // Close folder with appropriate expunge flag
+                LOGGER.fine("Closing IMAP folder for commit with expunge=" + expunge);
+                imapFolder.close(expunge);
+
+                // Reopen folder
+                LOGGER.fine("Reopening IMAP folder for commit");
+                imapFolder.open(currentMode);
+
+                return true;
+            } catch (MessagingException e) {
+                LOGGER.log(Level.WARNING, "Error committing changes to server", e);
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     @Override
     public boolean exists() throws MessagingException {
         // Check cache directory first - optimize by using local cache when possible
@@ -405,6 +448,9 @@ public class CachedFolder extends Folder {
                     return false; // Don't continue if server operation failed
                 }
                 LOGGER.info("Folder created on server successfully: " + folderName);
+
+                // Commit the creation
+                commitServerChanges(false);
             } else {
                 LOGGER.warning("Cannot create folder on server - IMAP folder is null");
                 return false;
@@ -446,7 +492,7 @@ public class CachedFolder extends Folder {
             fireChangeEvent(new MailCacheChangeEvent(this,
                     MailCacheChangeEvent.ChangeType.FOLDER_ADDED, this));
 
-            return true;
+            return result;
         }
         return false;
     }
@@ -474,6 +520,9 @@ public class CachedFolder extends Folder {
                     return false; // Don't delete locally if server delete failed
                 }
                 LOGGER.info("Folder deleted on server successfully: " + folderName);
+
+                // Commit the deletion
+                commitServerChanges(true);
             } else {
                 LOGGER.warning("Cannot delete folder on server - IMAP folder not ready");
                 return false;
@@ -547,6 +596,9 @@ public class CachedFolder extends Folder {
                         return false; // Don't rename locally if server rename failed
                     }
                     LOGGER.info("Folder renamed on server successfully");
+
+                    // Commit the rename
+                    commitServerChanges(false);
                 } else {
                     LOGGER.warning("Cannot rename folder on server - destination IMAP folder is null");
                     return false;
@@ -1021,9 +1073,9 @@ public class CachedFolder extends Folder {
     }
 
     /**
-     * Append messages to the folder with enhanced error handling
-     * and Message-ID preservation. Fixes issues with Gmail labels
-     * and server replication.
+     * Append messages to the folder with enhanced error handling,
+     * Message-ID preservation, and server synchronization. After appending,
+     * it retrieves the messages from the server to get the correct message IDs.
      *
      * @param msgs The messages to append
      * @throws MessagingException If there is an error during the append operation
@@ -1043,6 +1095,9 @@ public class CachedFolder extends Folder {
         LOGGER.info("Starting append operation to folder: " + folderName +
                 " with " + msgs.length + " messages");
 
+        // Store original Message-IDs for verification and retrieval
+        List<String> messageIds = new ArrayList<>();
+
         // Check and preserve Message-IDs for all messages
         for (int i = 0; i < msgs.length; i++) {
             // Make sure each message has a Message-ID (important for Gmail label approach)
@@ -1058,17 +1113,20 @@ public class CachedFolder extends Folder {
                 String generatedId = "<" + System.currentTimeMillis() + "." + i + "@mailcache.generated>";
                 try {
                     msgs[i].setHeader("Message-ID", generatedId);
+                    messageIds.add(generatedId);
                     LOGGER.info("Added generated Message-ID to message #" + (i+1) + ": " + generatedId);
                 } catch (MessagingException e) {
                     LOGGER.log(Level.WARNING, "Error setting Message-ID", e);
                 }
             } else {
+                messageIds.add(headers[0]);
                 LOGGER.fine("Message #" + (i+1) + " already has Message-ID: " + headers[0]);
             }
         }
 
         // For other modes, append to server first
         boolean serverOperationSuccessful = false;
+        Date appendStartTime = new Date(); // Record the time before append operation
 
         // Ensure IMAP folder is ready - key fix for server connectivity
         boolean imapReady = false;
@@ -1131,6 +1189,71 @@ public class CachedFolder extends Folder {
                 // Reset cached message count since we've added messages
                 cachedMessageCount = -1;
 
+                // Commit changes to ensure they're visible on the server
+                commitServerChanges(false);
+
+                // Wait a brief moment to ensure server has processed the append
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+
+                // Retrieve newly appended messages from the server
+                LOGGER.info("Retrieving newly appended messages from server to update cache");
+
+                // We can try multiple approaches to find the newly appended messages
+
+                // Approach 1: Search by Message-ID
+                for (String messageId : messageIds) {
+                    try {
+                        SearchTerm searchTerm = new javax.mail.search.HeaderTerm("Message-ID", messageId);
+                        Message[] foundMessages = imapFolder.search(searchTerm);
+
+                        if (foundMessages != null && foundMessages.length > 0) {
+                            LOGGER.fine("Found appended message with ID: " + messageId);
+                            // Create a CachedMessage which will update the cache
+                            new CachedMessage(this, foundMessages[0], true);
+                        }
+                    } catch (MessagingException e) {
+                        LOGGER.log(Level.WARNING, "Error searching for appended message with ID: " + messageId, e);
+                    }
+                }
+
+                // Approach 2: Get messages newer than our append start time
+                try {
+                    SearchTerm newerTerm = new javax.mail.search.ReceivedDateTerm(
+                            javax.mail.search.ComparisonTerm.GE, appendStartTime);
+                    Message[] newerMessages = imapFolder.search(newerTerm);
+
+                    if (newerMessages != null && newerMessages.length > 0) {
+                        LOGGER.fine("Found " + newerMessages.length + " messages newer than append start time");
+
+                        // Create CachedMessage instances for these new messages
+                        for (Message newMsg : newerMessages) {
+                            // Check if we already cached this message by Message-ID
+                            String[] msgIds = newMsg.getHeader("Message-ID");
+                            boolean alreadyCached = false;
+
+                            if (msgIds != null && msgIds.length > 0) {
+                                for (String id : messageIds) {
+                                    if (id.equals(msgIds[0])) {
+                                        alreadyCached = true;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            if (!alreadyCached) {
+                                // Create a new CachedMessage to update the cache
+                                new CachedMessage(this, newMsg, true);
+                            }
+                        }
+                    }
+                } catch (MessagingException e) {
+                    LOGGER.log(Level.WARNING, "Error searching for new messages by date", e);
+                }
+
             } catch (MessagingException e) {
                 LOGGER.log(Level.SEVERE, "Error appending messages to server", e);
 
@@ -1169,13 +1292,51 @@ public class CachedFolder extends Folder {
                     }
                 }
 
-                // Create a new CachedMessage - this will handle proper caching
+                // Only create a new CachedMessage if we didn't already fetch it from the server
+                // We'll know this by checking the message ID
+                boolean alreadyCached = false;
                 try {
-                    LOGGER.fine("Creating new CachedMessage for message #" + (i+1));
-                    new CachedMessage(this, msg);
+                    String[] headers = msg.getHeader("Message-ID");
+                    if (headers != null && headers.length > 0) {
+                        String msgId = headers[0];
+
+                        // Look for existing cached message with this ID
+                        File[] messageDirs = messagesDir.listFiles(File::isDirectory);
+                        if (messageDirs != null) {
+                            for (File dir : messageDirs) {
+                                File propsFile = new File(dir, "message.properties");
+                                if (propsFile.exists()) {
+                                    Properties props = new Properties();
+                                    try (FileInputStream fis = new FileInputStream(propsFile)) {
+                                        props.load(fis);
+                                        String storedId = props.getProperty("message.id");
+                                        if (msgId.equals(storedId)) {
+                                            alreadyCached = true;
+                                            break;
+                                        }
+                                    } catch (IOException e) {
+                                        // Ignore and continue checking
+                                    }
+                                }
+                            }
+                        }
+                    }
                 } catch (MessagingException e) {
-                    LOGGER.log(Level.WARNING, "Error caching message #" + (i+1) + ": " + e.getMessage(), e);
-                    // Continue with other messages
+                    // If we can't get the Message-ID, just assume it's not cached
+                    LOGGER.fine("Could not check Message-ID for caching: " + e.getMessage());
+                }
+
+                if (!alreadyCached) {
+                    // Create a new CachedMessage - this will handle proper caching
+                    try {
+                        LOGGER.fine("Creating new CachedMessage for message #" + (i+1));
+                        new CachedMessage(this, msg);
+                    } catch (MessagingException e) {
+                        LOGGER.log(Level.WARNING, "Error caching message #" + (i+1) + ": " + e.getMessage(), e);
+                        // Continue with other messages
+                    }
+                } else {
+                    LOGGER.fine("Skipping message #" + (i+1) + " - already cached from server fetch");
                 }
             }
 
@@ -1334,6 +1495,9 @@ public class CachedFolder extends Folder {
         if (imapReady) {
             expunged = imapFolder.expunge();
             LOGGER.info("Expunged " + (expunged != null ? expunged.length : 0) + " messages on server");
+
+            // Commit the expunge operation
+            commitServerChanges(true);
         } else {
             LOGGER.warning("Cannot expunge on server - IMAP folder not ready");
         }
@@ -1541,7 +1705,8 @@ public class CachedFolder extends Folder {
 
     /**
      * Move messages between folders. Will perform the move on the server first,
-     * then update the local cache accordingly.
+     * then update the local cache accordingly. After the move, it retrieves the
+     * messages from the destination to ensure message IDs are correct.
      *
      * @param messages The messages to move
      * @param destination The destination folder
@@ -1567,6 +1732,7 @@ public class CachedFolder extends Folder {
 
         // Move on server first if possible
         boolean serverOperationSuccessful = false;
+        List<String> messageIds = new ArrayList<>();
 
         // Ensure both source and destination IMAP folders are ready
         boolean sourceImapReady = prepareImapFolderForOperation(Folder.READ_WRITE);
@@ -1578,7 +1744,6 @@ public class CachedFolder extends Folder {
 
                 // Extract IMAP messages if needed
                 List<Message> imapMessages = new ArrayList<>();
-                List<String> messageIds = new ArrayList<>();
 
                 for (Message msg : messages) {
                     if (msg instanceof CachedMessage) {
@@ -1635,6 +1800,10 @@ public class CachedFolder extends Folder {
                         }
                     }
 
+                    // Commit the changes to both folders
+                    commitServerChanges(cacheMode.isDeleteAllowed());
+                    destFolder.commitServerChanges(false);
+
                     serverOperationSuccessful = true;
                     LOGGER.info("Server move operation completed successfully");
 
@@ -1643,6 +1812,35 @@ public class CachedFolder extends Folder {
                     cachedUnreadCount = -1;
                     destFolder.cachedMessageCount = -1;
                     destFolder.cachedUnreadCount = -1;
+
+                    // Now retrieve the moved messages from the destination folder
+                    // to ensure we have the correct message IDs and metadata
+                    if (!messageIds.isEmpty()) {
+                        LOGGER.info("Retrieving moved messages from destination folder to update cache");
+
+                        // Only search if we have message IDs to search for
+                        for (String messageId : messageIds) {
+                            try {
+                                // Create a search term for the message ID
+                                SearchTerm searchTerm = new javax.mail.search.HeaderTerm("Message-ID", messageId);
+
+                                // Search for the message in the destination folder
+                                Message[] foundMessages = destFolder.imapFolder.search(searchTerm);
+
+                                if (foundMessages != null && foundMessages.length > 0) {
+                                    LOGGER.fine("Found moved message with ID: " + messageId + " in destination folder");
+
+                                    // Create a new CachedMessage to update the cache
+                                    // This will overwrite any existing cached message with the same ID
+                                    new CachedMessage(destFolder, foundMessages[0], true);
+                                } else {
+                                    LOGGER.warning("Could not find moved message with ID: " + messageId + " in destination folder");
+                                }
+                            } catch (MessagingException e) {
+                                LOGGER.log(Level.WARNING, "Error retrieving moved message with ID: " + messageId, e);
+                            }
+                        }
+                    }
                 } else {
                     LOGGER.warning("No IMAP messages to move");
                 }
