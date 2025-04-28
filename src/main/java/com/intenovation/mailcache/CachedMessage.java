@@ -555,6 +555,7 @@ public class CachedMessage extends MimeMessage {
                     messageProperties.store(fos, "Mail Message Properties");
                 }
             } catch (IOException e) {
+                e.printStackTrace();
                 LOGGER.log(Level.WARNING, "Error saving message properties", e);
             }
 
@@ -657,6 +658,7 @@ public class CachedMessage extends MimeMessage {
                 }
 
             } catch (IOException e) {
+                e.printStackTrace();
                 LOGGER.log(Level.WARNING, "Error saving message content", e);
             }
 
@@ -693,11 +695,13 @@ public class CachedMessage extends MimeMessage {
                 this.flags = (Flags) msgFlags.clone();
 
             } catch (IOException e) {
+                e.printStackTrace();
                 LOGGER.log(Level.WARNING, "Error saving message flags", e);
             }
 
             contentLoaded = true;
         } catch (Exception e) {
+            e.printStackTrace();
             throw new MessagingException("Error saving message to cache", e);
         }
     }
