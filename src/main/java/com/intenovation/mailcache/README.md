@@ -1,6 +1,6 @@
 # JavaMail Cache Implementation
 
-A robust solution for efficient email access with flexible online/offline capabilities and permanent message archiving - now with multi-user support.
+A robust solution for efficient email access with flexible online/offline capabilities and permanent message archiving - with comprehensive multi-user support.
 
 ## Overview
 
@@ -53,11 +53,11 @@ To meet record-keeping requirements and prevent accidental data loss:
 ## Key Features
 
 - **Five Operation Modes**:
-  - **Online**: Searches happen on the server while reading uses the local cache for speed
-  - **Offline**: All operations use the local cache with no server connectivity required
-  - **Accelerated**: Reading and searching use local cache, writing happens both locally and on the server
-  - **Refresh**: Always gets latest from server, overwrites cache completely
-  - **Destructive**: The only mode that allows deleting messages and folders (use with caution)
+    - **Online**: Searches happen on the server while reading uses the local cache for speed
+    - **Offline**: All operations use the local cache with no server connectivity required
+    - **Accelerated**: Reading and searching use local cache, writing happens both locally and on the server
+    - **Refresh**: Always gets latest from server, overwrites cache completely
+    - **Destructive**: The only mode that allows deleting messages and folders (use with caution)
 - **Permanent Archiving**: Messages deleted from the server are archived locally and never truly deleted
 - **Standard API**: Fully compatible with the JavaMail API
 - **Seamless Transitions**: Switch between modes without restarting your application
@@ -93,16 +93,17 @@ implementation 'com.intenovation:mailcache:1.0.0'
 import com.intenovation.mailcache.*;
 import javax.mail.*;
 
-// Create a cache directory
-File cacheDir = new File("/path/to/cache");
+// Create a base cache directory
+File baseCacheDir = new File("/path/to/cache");
 
 // Open a store in ACCELERATED mode with IMAP connectivity
+// The username-specific cache will be created at /path/to/cache/username/
 CachedStore store = MailCache.openStore(
-    cacheDir,
+    baseCacheDir,
     CacheMode.ACCELERATED,
     "imap.example.com",
     993,
-    "username",
+    "username@example.com",
     "password",
     true // Use SSL
 );
@@ -121,7 +122,9 @@ inbox.close(false);
 store.close();
 ```
 
-### Multi-User Cache Support
+### Multi-User Support
+
+The system automatically organizes cached data by username:
 
 ```java
 import com.intenovation.mailcache.*;
@@ -131,7 +134,8 @@ import javax.mail.*;
 File baseCacheDir = new File("/path/to/cache");
 
 // Open a store for a specific user
-CachedStore userStore = MailCache.openMultiUserStore(
+// This will create a cache at /path/to/cache/user1@example.com/
+CachedStore userStore = MailCache.openStore(
     baseCacheDir,
     CacheMode.ACCELERATED,
     "imap.example.com",
@@ -141,15 +145,9 @@ CachedStore userStore = MailCache.openMultiUserStore(
     true // Use SSL
 );
 
-// This will create a user-specific cache at /path/to/cache/user1@example.com/
-
-// Work with folders and messages as usual
-Folder inbox = userStore.getFolder("INBOX");
-inbox.open(Folder.READ_ONLY);
-// ...
-
-// Open a store for another user
-CachedStore otherUserStore = MailCache.openMultiUserStore(
+// Open a store for another user 
+// This will create a cache at /path/to/cache/user2@example.com/
+CachedStore otherUserStore = MailCache.openStore(
     baseCacheDir,
     CacheMode.ACCELERATED,
     "imap.example.com",
@@ -159,7 +157,17 @@ CachedStore otherUserStore = MailCache.openMultiUserStore(
     true // Use SSL
 );
 
-// This will create a user-specific cache at /path/to/cache/user2@example.com/
+// Get all active stores
+Collection<CachedStore> allStores = MailCache.getAllStores();
+
+// Get a specific store by username
+CachedStore user1Store = MailCache.getStoreByUsername("user1@example.com");
+
+// Close a specific store
+MailCache.closeStore("user1@example.com");
+
+// Close all stores
+MailCache.closeAllStores();
 ```
 
 ### Working with Different Modes
@@ -216,6 +224,42 @@ if (messages.length > 0 && messages[0] instanceof CachedMessage) {
 }
 
 inbox.close(false);
+```
+
+### Listener Support
+
+Register for change notifications:
+
+```java
+// Add a listener to the MailCache system
+MailCache.addChangeListener(new MailCacheChangeListener() {
+    @Override
+    public void mailCacheChanged(MailCacheChangeEvent event) {
+        ChangeType type = event.getChangeType();
+        
+        switch (type) {
+            case STORE_OPENED:
+                System.out.println("Store opened: " + event.getChangedItem());
+                break;
+            case STORE_CLOSED:
+                System.out.println("Store closed: " + event.getChangedItem());
+                break;
+            case FOLDER_UPDATED:
+                System.out.println("Folder updated: " + event.getChangedItem());
+                break;
+            case MESSAGE_ADDED:
+                System.out.println("Message added: " + event.getChangedItem());
+                break;
+            // Handle other event types...
+        }
+    }
+});
+
+// Add a listener directly to a folder
+Folder inbox = store.getFolder("INBOX");
+inbox.addChangeListener(event -> {
+    System.out.println("Inbox change: " + event.getChangeType());
+});
 ```
 
 ## Operation Modes Explained
@@ -286,15 +330,23 @@ For a typical write operation such as appending a message to a folder:
    new CachedMessage(this, msg);
    ```
 
-3. Finally, changes are committed and verified on the server:
+3. Finally, changes are committed by closing and reopening the connection:
    ```java
-   // Server-cache synchronization
-   // In real implementation, we look for the message on the server
-   // and update our local cache with the server version to ensure
-   // we have the correct message ID and all metadata
+   // Commit changes to the server
+   commitServerChanges(false);
    ```
 
-This ensures that operations are executed in a consistent manner that prioritizes server state.
+4. After the commit, the system retrieves the newly created messages from the server:
+   ```java
+   // Retrieve newly appended messages from the server
+   SearchTerm searchTerm = new HeaderTerm("Message-ID", messageId);
+   Message[] foundMessages = imapFolder.search(searchTerm);
+   
+   // Update the cache with the server version
+   new CachedMessage(this, foundMessages[0], true);
+   ```
+
+This ensures that operations are executed in a consistent manner that prioritizes server state and ensures the cache accurately reflects it.
 
 ## Advanced Features
 
@@ -316,6 +368,24 @@ inbox.moveMessages(messages, archive);
 
 inbox.close(false);
 archive.close(false);
+```
+
+### Offline Access to Existing Cache
+
+```java
+// Create an offline store for viewing cached messages without server connectivity
+File baseCacheDir = new File("/path/to/cache");
+String username = "user@example.com";
+
+CachedStore offlineStore = MailCache.openOfflineStore(baseCacheDir, username);
+
+// Now work with the cached data
+Folder inbox = offlineStore.getFolder("INBOX");
+inbox.open(Folder.READ_ONLY);
+        Message[] messages = inbox.getMessages();
+// ...
+        inbox.close(false);
+        offlineStore.close();
 ```
 
 ## Directory Structure
