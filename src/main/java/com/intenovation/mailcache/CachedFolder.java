@@ -1105,6 +1105,7 @@ public class CachedFolder extends Folder {
             try {
                 headers = msgs[i].getHeader("Message-ID");
             } catch (MessagingException e) {
+                e.printStackTrace();
                 LOGGER.log(Level.WARNING, "Error checking Message-ID", e);
             }
 
@@ -1122,6 +1123,7 @@ public class CachedFolder extends Folder {
                 messageIds.add(headers[0]);
                 LOGGER.fine("Message #" + (i+1) + " already has Message-ID: " + headers[0]);
             }
+            messageValidation(msgs[i]);
         }
 
         // For other modes, append to server first
@@ -1154,6 +1156,7 @@ public class CachedFolder extends Folder {
                         if (imapMsg != null) {
                             imapMessages[i] = imapMsg;
                             LOGGER.fine("Using existing IMAP message for message #" + (i+1));
+                            messageValidation(imapMsg);
                         } else {
                             // Create a new MimeMessage from the cached content
                             LOGGER.fine("Creating new MimeMessage from cached content for message #" + (i+1));
@@ -1168,7 +1171,7 @@ public class CachedFolder extends Folder {
                                     newMsg.setHeader("Message-ID", msgIds[0]);
                                     LOGGER.fine("Preserved Message-ID in new MimeMessage: " + msgIds[0]);
                                 }
-
+                                messageValidation(imapMsg);
                                 imapMessages[i] = newMsg;
                             } catch (IOException e) {
                                 LOGGER.log(Level.WARNING, "Error creating MimeMessage from cached content", e);
@@ -1177,7 +1180,9 @@ public class CachedFolder extends Folder {
                         }
                     } else {
                         imapMessages[i] = msgs[i];
+                        messageValidation(msgs[i]);
                         LOGGER.fine("Using original message for server append");
+                        throw new RuntimeException("should not happen");
                     }
                 }
 
@@ -1356,6 +1361,13 @@ public class CachedFolder extends Folder {
         LOGGER.info("Append operation completed - Server: " +
                 (serverOperationSuccessful ? "Success" : "Skipped/Failed") +
                 ", Local: Success");
+    }
+
+    private static void messageValidation(Message imapMsg) throws MessagingException {
+        String subject= imapMsg.getSubject();
+        if (subject==null || subject.length()==0){
+            throw new RuntimeException("Message Validation failed: Subject");
+        }
     }
 
     @Override
