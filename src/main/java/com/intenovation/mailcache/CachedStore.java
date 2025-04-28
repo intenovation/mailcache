@@ -101,7 +101,18 @@ public class CachedStore extends Store {
      */
     private void initializeUserDirectory() {
         if (baseCacheDirectory != null && username != null) {
-            userCacheDirectory = new File(baseCacheDirectory, username);
+            String sanitizedUsername = sanitizeUsername(username);
+            // Check if baseCacheDirectory already ends with the sanitized username
+            String basePath = baseCacheDirectory.getAbsolutePath();
+            String lastPathComponent = basePath.substring(basePath.lastIndexOf(File.separator) + 1);
+
+            if (lastPathComponent.equals(sanitizedUsername)) {
+                // The base directory already includes the username as the final path component
+                userCacheDirectory = baseCacheDirectory;
+            } else {
+                // Add the username to the path
+                userCacheDirectory = new File(baseCacheDirectory, sanitizedUsername);
+            }
 
             // Log the user directory being used
             LOGGER.info("Using cache directory for user '" + username + "': " +
