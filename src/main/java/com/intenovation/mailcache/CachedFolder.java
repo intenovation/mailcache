@@ -1617,15 +1617,6 @@ public class CachedFolder extends Folder {
     }
 
     /**
-     * Get the file system directory for this folder
-     *
-     * @return The directory for this folder
-     */
-    public File getFolderDirectory() {
-        return cacheDir;
-    }
-
-    /**
      * Add an additional file to the folder
      *
      * @param filename The name of the file to create/update
