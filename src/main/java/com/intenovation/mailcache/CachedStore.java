@@ -272,7 +272,8 @@ public class CachedStore extends Store {
     @Override
     public CachedFolder getDefaultFolder() throws MessagingException {
         if (!connected) {
-            throw new IllegalStateException("Store not connected");
+            connect();
+            //throw new IllegalStateException("Store not connected");
         }
 
         CachedFolder folder = new CachedFolder(this, "", true);
