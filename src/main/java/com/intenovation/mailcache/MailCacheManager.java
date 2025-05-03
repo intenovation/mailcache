@@ -22,105 +22,92 @@ import java.util.logging.Logger;
  */
 public class MailCacheManager implements PasswordChangeListener {
     private static final Logger LOGGER = Logger.getLogger(MailCacheManager.class.getName());
-    
+
     // Constants for custom properties
     public static final String PROP_PORT = "mail.port";
     public static final String PROP_SSL = "mail.ssl";
     public static final String PROP_CACHE_MODE = "mail.cache.mode";
     public static final String PROP_CACHE_DIR = "mail.cache.directory";
-    
+
     private PasswordManagerApp passwordManager;
     private File defaultCacheDir;
     private Map<String, CachedStore> openStores = new HashMap<>();
-    
+
     /**
      * Create a new mail cache manager
-     * 
+     *
      * @param passwordManager The password manager to use
      * @param defaultCacheDir The default cache directory
      */
     public MailCacheManager(PasswordManagerApp passwordManager, File defaultCacheDir) {
         this.passwordManager = passwordManager;
         this.defaultCacheDir = defaultCacheDir;
-        
+
         // Register as a listener for password changes
         passwordManager.addPasswordChangeListener(this);
     }
-    
+
     /**
      * Initialize all IMAP accounts from the password manager
-     * 
+     *
      * @return Map of username to CachedStore
      */
     public Map<String, CachedStore> initializeAllStores() {
         List<Password> imapPasswords = PasswordManagerApp.getImapPasswords();
-        
+
         for (Password password : imapPasswords) {
             try {
-                // Get plain password
-                String plainPassword = passwordManager.getPasswordConfig().getPlainPassword(password);
-                
-                // Get server (URL)
+                // Get credentials and configuration from password object
+                String username = password.getUsername();
+                String plainPassword = password.getPlainTextPassword();
                 String server = password.getUrl();
-                
+
                 // Get port (default to 993)
-                int port = 993;
-                String portStr = password.getProperty(PROP_PORT);
-                if (portStr != null && !portStr.isEmpty()) {
-                    try {
-                        port = Integer.parseInt(portStr);
-                    } catch (NumberFormatException e) {
-                        // Use default port
-                    }
-                }
-                
+                int port = password.getIntProperty(PROP_PORT, 993);
+
                 // Get SSL setting (default to true)
-                boolean useSSL = true;
-                String sslStr = password.getProperty(PROP_SSL);
-                if (sslStr != null && !sslStr.isEmpty()) {
-                    useSSL = Boolean.parseBoolean(sslStr);
-                }
-                
+                boolean useSSL = password.getBooleanProperty(PROP_SSL, true);
+
                 // Get cache mode (default to ACCELERATED)
                 CacheMode cacheMode = CacheMode.ACCELERATED;
                 CacheMode storedMode = password.getEnumProperty(PROP_CACHE_MODE, CacheMode.class);
                 if (storedMode != null) {
                     cacheMode = storedMode;
                 }
-                
+
                 // Get cache directory (default to user directory within default cache dir)
-                File cacheDir = new File(defaultCacheDir, password.getUsername().replaceAll("[\\\\/:*?\"<>|]", "_"));
+                File cacheDir = new File(defaultCacheDir, username.replaceAll("[\\\\/:*?\"<>|]", "_"));
                 String cacheDirStr = password.getProperty(PROP_CACHE_DIR);
                 if (cacheDirStr != null && !cacheDirStr.isEmpty()) {
                     cacheDir = new File(cacheDirStr);
                 }
-                
+
                 // Ensure cache directory exists
                 if (!cacheDir.exists()) {
                     cacheDir.mkdirs();
                 }
-                
+
                 // Open the store
                 CachedStore store = MailCache.openStore(
                         cacheDir,
                         cacheMode,
                         server,
                         port,
-                        password.getUsername(),
+                        username,
                         plainPassword,
                         useSSL);
-                
+
                 if (store != null) {
-                    openStores.put(password.getUsername(), store);
-                    LOGGER.info("Opened store for " + password.getUsername() + 
+                    openStores.put(username, store);
+                    LOGGER.info("Opened store for " + username +
                             " in " + cacheMode + " mode");
                 }
             } catch (Exception e) {
-                LOGGER.log(Level.WARNING, "Error opening store for " + 
+                LOGGER.log(Level.WARNING, "Error opening store for " +
                         password.getUsername(), e);
             }
         }
-        
+
         return new HashMap<>(openStores);
     }
     
