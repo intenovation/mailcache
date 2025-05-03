@@ -49,7 +49,7 @@ public class ApplyMessageTaskToFolder extends AbstractFolderTask {
                     int progress = (i * 100) / totalMessages;
                     
                     try {
-                        callback.update(progress, "Processing message " + (i + 1) + "/" + totalMessages);
+                        callback.update(progress, "Processing message ? /" + totalMessages);
                         
                         if (message instanceof CachedMessage) {
                             CachedMessage cachedMessage = (CachedMessage) message;
@@ -59,7 +59,7 @@ public class ApplyMessageTaskToFolder extends AbstractFolderTask {
                                 @Override
                                 public void update(int subPercent, String subMessage) {
                                     // Don't update main progress, just status
-                                    callback.update(progress, "Message " + (i + 1) + ": " + subMessage);
+                                    callback.update(progress, "Message : " + subMessage);
                                 }
                             };
                             

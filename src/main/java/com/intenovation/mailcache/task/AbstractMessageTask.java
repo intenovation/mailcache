@@ -1,9 +1,11 @@
 package com.intenovation.mailcache.task;
 
+import com.intenovation.appfw.config.ConfigItemTypeRegistry;
 import com.intenovation.appfw.task.BackgroundTask;
 import com.intenovation.appfw.task.ProgressStatusCallback;
 import com.intenovation.appfw.config.ConfigItemType;
 import com.intenovation.mailcache.CachedMessage;
+import com.intenovation.mailcache.config.CachedFolderType;
 import com.intenovation.mailcache.config.CachedMessageType;
 
 /**
@@ -17,7 +19,7 @@ public abstract class AbstractMessageTask extends BackgroundTask {
     
     @Override
     public ConfigItemType getParameterType() {
-        return MailCacheTaskRegistry.getInstance().getMessageType();
+        return ConfigItemTypeRegistry.getInstance().getType(CachedMessageType.TYPE_ID);
     }
     
     @Override
