@@ -20,7 +20,7 @@ public enum CacheMode implements DescribedEnum {
     /**
      * Online mode - searching happens online, reading uses cache for speed, writing happens both locally and on server
      */
-    ONLINE("Searching on server, reading from cache for speed. Good when real-time search results are needed.", false, true, true, false, true),
+    ONLINE("Searching on server, reading from cache for speed. Good when real-time search results are needed. should not initially read from server but do so if not available", false, true, true, false, true),
 
     /**
      * Refresh mode - always gets latest from server, overwrites cache completely, writing happens both locally and on server
