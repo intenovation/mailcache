@@ -6,7 +6,7 @@
     <artifactId>mailcache</artifactId>
     <version>1.0.0</version>
     <name>Intenovation Mail Cache</name>
-    <description>Intenovation Mail Cache</description>
+    <description>Intenovation Mail Cache with Password Manager Integration</description>
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -17,6 +17,20 @@
     </properties>
 
     <dependencies>
+        <!-- AppFw Framework -->
+        <dependency>
+            <groupId>com.intenovation</groupId>
+            <artifactId>appfw</artifactId>
+            <version>1.1.0</version>
+        </dependency>
+
+        <!-- Password Manager -->
+        <dependency>
+            <groupId>com.intenovation</groupId>
+            <artifactId>passwordmanager</artifactId>
+            <version>1.0.0</version>
+        </dependency>
+
         <!-- Java Mail -->
         <dependency>
             <groupId>com.sun.mail</groupId>
@@ -71,21 +85,26 @@
             <version>${mockito.version}</version>
             <scope>test</scope>
         </dependency>
+
+        <!-- Jsoup -->
         <dependency>
             <groupId>org.jsoup</groupId>
             <artifactId>jsoup</artifactId>
             <version>1.15.3</version>
         </dependency>
+
+        <!-- PDFBox -->
         <dependency>
             <groupId>org.apache.pdfbox</groupId>
             <artifactId>pdfbox</artifactId>
             <version>2.0.29</version>
         </dependency>
+
+        <!-- Apache Commons CLI (for enhanced command line parsing) -->
         <dependency>
-            <groupId>com.intenovation</groupId>
-            <artifactId>passwordmanager</artifactId>
-            <version>1.0.0</version>
-            <scope>compile</scope>
+            <groupId>commons-cli</groupId>
+            <artifactId>commons-cli</artifactId>
+            <version>1.5.0</version>
         </dependency>
     </dependencies>
 
@@ -104,6 +123,32 @@
                     <source>${maven.compiler.source}</source>
                     <target>${maven.compiler.target}</target>
                 </configuration>
+            </plugin>
+
+            <!-- Assembly plugin to create jar with dependencies -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-assembly-plugin</artifactId>
+                <version>3.6.0</version>
+                <configuration>
+                    <descriptorRefs>
+                        <descriptorRef>jar-with-dependencies</descriptorRef>
+                    </descriptorRefs>
+                    <archive>
+                        <manifest>
+                            <mainClass>com.intenovation.mailcache.MailCacheIntegrated</mainClass>
+                        </manifest>
+                    </archive>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>make-assembly</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>single</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

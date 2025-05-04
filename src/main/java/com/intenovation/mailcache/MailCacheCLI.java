@@ -1,6 +1,7 @@
 package com.intenovation.mailcache;
 
 import com.intenovation.appfw.app.AbstractApplication;
+import com.intenovation.appfw.app.Application;
 import com.intenovation.appfw.app.CommandLineRunner;
 import com.intenovation.appfw.config.*;
 import com.intenovation.appfw.task.BackgroundTask;
@@ -23,6 +24,7 @@ public class MailCacheCLI extends AbstractApplication {
     private static final Logger LOGGER = Logger.getLogger(MailCacheCLI.class.getName());
     
     private MailCacheManager mailCacheManager;
+    private PasswordManagerApp passwordManagerApp;
     
     public MailCacheCLI() {
         super("MailCache CLI");
@@ -31,6 +33,14 @@ public class MailCacheCLI extends AbstractApplication {
     @Override
     public ConfigurationDefinition getConfigurationDefinition() {
         return new MailCacheConfig();
+    }
+    
+    @Override
+    public void setApplicationReference(String appName, Application app) {
+        if ("Password Manager".equals(appName) && app instanceof PasswordManagerApp) {
+            this.passwordManagerApp = (PasswordManagerApp) app;
+            LOGGER.info("Password Manager reference set in MailCache CLI");
+        }
     }
     
     @Override
@@ -53,24 +63,7 @@ public class MailCacheCLI extends AbstractApplication {
         File cacheDir = ConfigUtils.getFile(config, "cache.directory", 
             new File(System.getProperty("user.home"), ".mailcache"));
         
-        // Try to find PasswordManagerApp from TaskRegistry (it should be registered if running in integrated mode)
-        PasswordManagerApp passwordManagerApp = null;
-        for (String appName : com.intenovation.appfw.task.TaskRegistry.getInstance().getRegisteredApplications()) {
-            if (appName.equals("Password Manager")) {
-                // This is a bit of a hack - we need a way to get the actual app instance
-                // In a real implementation, we might need to enhance AppFw to support this
-                LOGGER.info("Password Manager found in registry, but instance retrieval not yet implemented");
-                break;
-            }
-        }
-        
-        // If we're running in integrated mode, try to get password manager from system property
-        String integratedMode = System.getProperty("mailcache.integrated");
-        if ("true".equals(integratedMode)) {
-            passwordManagerApp = (PasswordManagerApp) System.getProperties().get("password.manager.instance");
-        }
-        
-        // If we have a password manager, use it to initialize stores
+        // If we have a password manager reference, use it
         if (passwordManagerApp != null) {
             LOGGER.info("Using Password Manager for IMAP credentials");
             
@@ -149,8 +142,8 @@ public class MailCacheCLI extends AbstractApplication {
         
         // If we have a mailCacheManager, clean it up too
         if (mailCacheManager != null) {
-            // This will be handled by MailCache.closeAllStores()
-            LOGGER.info("MailCacheManager cleanup handled by MailCache");
+            mailCacheManager.closeAllStores();
+            LOGGER.info("MailCacheManager cleanup complete");
         }
         
         super.shutDown();
@@ -166,11 +159,20 @@ public class MailCacheCLI extends AbstractApplication {
             System.out.println("  --task <name>    Run a specific task");
             System.out.println("  --help           Show help");
             System.out.println();
-            System.out.println("Example: java -jar app.jar --app \"MailCache CLI\" --task apply-to-folder");
-            System.out.println();
-            System.out.println("When running with Password Manager integration:");
-            System.out.println("  1. Add IMAP accounts using: --app \"Password Manager\" add imap server.com user");
-            System.out.println("  2. Use MailCache tasks: --app \"MailCache CLI\" --task sync-folder");
+            
+            if (passwordManagerApp != null) {
+                System.out.println("Password Manager integration is active!");
+                System.out.println("IMAP credentials will be loaded from Password Manager.");
+                System.out.println();
+                System.out.println("To add a new IMAP account:");
+                System.out.println("  mailcache.sh --app \"Password Manager\" add imap server.com user");
+                System.out.println();
+                System.out.println("To sync a folder:");
+                System.out.println("  mailcache.sh --app \"MailCache CLI\" --task sync-folder");
+            } else {
+                System.out.println("Running in standalone mode (no Password Manager integration)");
+                System.out.println("Configure IMAP credentials using: --config");
+            }
             
             return 0;
         }
