@@ -10,12 +10,21 @@ import java.util.List;
 
 /**
  * Integrated application launcher that combines PasswordManager and MailCache CLI
+ * with proper instance sharing between applications.
  */
 public class MailCacheIntegrated {
     
     public static void main(String[] args) {
-        // Create both applications
+        // Create password manager first
         PasswordManagerApp passwordManagerApp = new PasswordManagerApp();
+        
+        // Set integrated mode flag
+        System.setProperty("mailcache.integrated", "true");
+        
+        // Store password manager instance for retrieval by MailCacheCLI
+        System.getProperties().put("password.manager.instance", passwordManagerApp);
+        
+        // Create mail cache app
         MailCacheCLI mailCacheApp = new MailCacheCLI();
         
         // Create a list of applications
@@ -28,9 +37,13 @@ public class MailCacheIntegrated {
         controller.setDefaultApplication("MailCache CLI");
         
         // Process command line arguments
-        int exitCode = controller.processCommandLine(args);
-        
-        // Exit with the appropriate code
-        System.exit(exitCode);
+        try {
+            int exitCode = controller.processCommandLine(args);
+            System.exit(exitCode);
+        } catch (Exception e) {
+            System.err.println("Error: " + e.getMessage());
+            e.printStackTrace();
+            System.exit(1);
+        }
     }
 }
