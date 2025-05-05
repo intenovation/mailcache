@@ -180,6 +180,9 @@ public class MailCacheCLI extends AbstractApplication {
         // Create the message reading task
         ReadMessage readMessageTask = new ReadMessage();
 
+        // Add the list folders task
+        tasks.add(new ListFoldersTask());
+
         // Add the task that applies message reading to all messages in a folder
         tasks.add(new ApplyMessageTaskToFolder(readMessageTask));
 
