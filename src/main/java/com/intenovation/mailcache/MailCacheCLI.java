@@ -15,6 +15,8 @@ import com.intenovation.passwordmanager.PasswordType;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
 import java.util.logging.Logger;
 
 /**
@@ -72,6 +74,52 @@ public class MailCacheCLI extends AbstractApplication {
             
             // Initialize all stores from password manager
             mailCacheManager.initializeAllStores();
+            
+            // Update our configuration to reflect the first IMAP account from password manager
+            // This makes the configuration display more accurate
+            List<Password> imapPasswords = PasswordManagerApp.getImapPasswords();
+            if (!imapPasswords.isEmpty()) {
+                Password firstImapPassword = imapPasswords.get(0);
+                
+                // Create a map of configuration values to update
+                Map<String, Object> configValues = new HashMap<>(config.getCurrentValues());
+                
+                // Update configuration values from password manager
+                configValues.put("imap.host", firstImapPassword.getUrl());
+                configValues.put("imap.username", firstImapPassword.getUsername());
+                
+                // Get port from custom properties
+                String portStr = firstImapPassword.getProperty(MailCacheManager.PROP_PORT);
+                if (portStr != null && !portStr.isEmpty()) {
+                    try {
+                        int port = Integer.parseInt(portStr);
+                        configValues.put("imap.port", port);
+                    } catch (NumberFormatException e) {
+                        // Keep default port
+                    }
+                }
+                
+                // Get SSL setting from custom properties
+                String sslStr = firstImapPassword.getProperty(MailCacheManager.PROP_SSL);
+                if (sslStr != null && !sslStr.isEmpty()) {
+                    configValues.put("imap.ssl", Boolean.parseBoolean(sslStr));
+                }
+                
+                // Get cache mode from custom properties
+                CacheMode storedMode = firstImapPassword.getEnumProperty(
+                    MailCacheManager.PROP_CACHE_MODE, CacheMode.class);
+                if (storedMode != null) {
+                    configValues.put("cache.mode", storedMode.name());
+                }
+                
+                // Note: We don't update the password field for security reasons
+                // It's already available through the password manager
+                
+                // Apply the updated configuration
+                config.applyConfiguration(configValues);
+                
+                LOGGER.info("Updated MailCache configuration from Password Manager settings");
+            }
         } else {
             // Fall back to traditional configuration-based initialization
             LOGGER.info("Password Manager not available, using configuration for IMAP credentials");
@@ -155,14 +203,15 @@ public class MailCacheCLI extends AbstractApplication {
         if (args.length == 0) {
             System.out.println("MailCache CLI - Available commands:");
             System.out.println("  --config         Edit configuration interactively");
+            System.out.println("  --show-config    Show current configuration");
             System.out.println("  --list-tasks     List available tasks");
-            System.out.println("  --task <name>    Run a specific task");
+            System.out.println("  --task <n>    Run a specific task");
             System.out.println("  --help           Show help");
             System.out.println();
             
             if (passwordManagerApp != null) {
                 System.out.println("Password Manager integration is active!");
-                System.out.println("IMAP credentials will be loaded from Password Manager.");
+                System.out.println("IMAP credentials are loaded from Password Manager.");
                 System.out.println();
                 System.out.println("To add a new IMAP account:");
                 System.out.println("  mailcache.sh --app \"Password Manager\" add imap server.com user");

@@ -62,11 +62,16 @@ public class MailCacheManager implements PasswordChangeListener {
                 String plainPassword = password.getPlainTextPassword();
                 String server = password.getUrl();
 
-                // Get port (default to 993)
+                // Get port (default to 993 for SSL)
                 int port = password.getIntProperty(PROP_PORT, 993);
 
                 // Get SSL setting (default to true)
                 boolean useSSL = password.getBooleanProperty(PROP_SSL, true);
+                
+                // If no port was explicitly set, use standard defaults based on SSL
+                if (password.getProperty(PROP_PORT) == null) {
+                    port = useSSL ? 993 : 143;
+                }
 
                 // Get cache mode (default to ACCELERATED)
                 CacheMode cacheMode = CacheMode.ACCELERATED;
@@ -163,21 +168,34 @@ public class MailCacheManager implements PasswordChangeListener {
     }
     
     /**
-     * Add a new IMAP account to the password manager
+     * Add a new IMAP account to the password manager with default settings
      * 
      * @param username The username
      * @param password The password
      * @param server The IMAP server URL
-     * @param port The IMAP port
-     * @param useSSL Whether to use SSL
-     * @param cacheMode The cache mode to use
+     * @param port The IMAP port (if null/0, will default based on SSL)
+     * @param useSSL Whether to use SSL (if null, defaults to true)
+     * @param cacheMode The cache mode to use (if null, defaults to ACCELERATED)
      * @param cacheDir The directory to use for caching (null for default)
      * @return true if successful, false otherwise
      */
     public boolean addImapAccount(String username, String password, 
-                                String server, int port, boolean useSSL,
+                                String server, Integer port, Boolean useSSL,
                                 CacheMode cacheMode, File cacheDir) {
         try {
+            // Set defaults
+            if (useSSL == null) {
+                useSSL = true;
+            }
+            
+            if (port == null || port == 0) {
+                port = useSSL ? 993 : 143;
+            }
+            
+            if (cacheMode == null) {
+                cacheMode = CacheMode.ACCELERATED;
+            }
+            
             // Create custom properties map
             Map<String, String> properties = new HashMap<>();
             properties.put(PROP_PORT, String.valueOf(port));
@@ -211,6 +229,18 @@ public class MailCacheManager implements PasswordChangeListener {
             LOGGER.log(Level.SEVERE, "Error adding IMAP account", e);
             return false;
         }
+    }
+    
+    /**
+     * Add a new IMAP account with basic defaults
+     * 
+     * @param username The username
+     * @param password The password
+     * @param server The IMAP server URL
+     * @return true if successful, false otherwise
+     */
+    public boolean addImapAccount(String username, String password, String server) {
+        return addImapAccount(username, password, server, null, null, null, null);
     }
     
     /**
@@ -335,6 +365,11 @@ public class MailCacheManager implements PasswordChangeListener {
                     String sslStr = password.getProperty(PROP_SSL);
                     if (sslStr != null && !sslStr.isEmpty()) {
                         useSSL = Boolean.parseBoolean(sslStr);
+                    }
+                    
+                    // Handle defaults if properties aren't set
+                    if (portStr == null || portStr.isEmpty()) {
+                        port = useSSL ? 993 : 143;
                     }
                     
                     CacheMode cacheMode = CacheMode.ACCELERATED;
