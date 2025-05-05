@@ -12,7 +12,7 @@ import javax.mail.MessagingException;
  */
 public class ReadMessage extends AbstractMessageTask {
 
-    public ReadMessage(AbstractMessageTask messageTask) {
+    public ReadMessage() {
         super("read", "reads message subject");
     }
     
