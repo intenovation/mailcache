@@ -36,6 +36,12 @@ public class MailCacheIntegrated {
         // Set MailCache as the default application
         controller.setDefaultApplication("MailCache CLI");
         
+        // Check if we should just list apps and exit
+        if (args.length > 0 && (args[0].equals("--list-apps") || args[0].equals("-l"))) {
+            controller.listApplications();
+            System.exit(0);
+        }
+        
         // Process command line arguments
         try {
             int exitCode = controller.processCommandLine(args);
@@ -45,5 +51,26 @@ public class MailCacheIntegrated {
             e.printStackTrace();
             System.exit(1);
         }
+    }
+    
+    /**
+     * Print usage information
+     */
+    public static void printUsage() {
+        System.out.println("MailCache Integrated CLI");
+        System.out.println("------------------------");
+        System.out.println("Available commands:");
+        System.out.println("  --list-apps, -l      List all available applications");
+        System.out.println("  --app \"App Name\"     Select a specific application to run");
+        System.out.println("  --list               Alternative way to list applications (same as --list-apps)");
+        System.out.println("  --help               Show this help");
+        System.out.println("  --repl               Start in interactive REPL mode");
+        System.out.println();
+        System.out.println("Examples:");
+        System.out.println("  ./mailcache.sh --list-apps");
+        System.out.println("  ./mailcache.sh --app \"Password Manager\" add imap server.com user");
+        System.out.println("  ./mailcache.sh --app \"MailCache CLI\" --task sync-folder");
+        System.out.println("  ./mailcache.sh --repl");
+        System.out.println();
     }
 }
