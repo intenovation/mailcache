@@ -164,7 +164,7 @@ public class MailCacheCLI extends AbstractApplication {
         List<BackgroundTask> tasks = new ArrayList<>();
         
         // Create the message reading task
-        ReadMessage readMessageTask = new ReadMessage(null);
+        ReadMessage readMessageTask = new ReadMessage();
         
         // Add the task that applies message reading to all messages in a folder
         tasks.add(new ApplyMessageTaskToFolder(readMessageTask));
@@ -173,7 +173,7 @@ public class MailCacheCLI extends AbstractApplication {
         tasks.add(new SynchronizeFolderTask());
         
         // Add a task to archive old messages
-        //tasks.add(new ArchiveOldMessagesTask());
+        tasks.add(readMessageTask);
         
         return tasks;
     }
