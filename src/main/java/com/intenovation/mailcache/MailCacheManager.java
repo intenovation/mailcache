@@ -80,21 +80,14 @@ public class MailCacheManager implements PasswordChangeListener {
                     cacheMode = storedMode;
                 }
 
-                // Get cache directory (default to user directory within default cache dir)
-                File cacheDir = new File(defaultCacheDir, username.replaceAll("[\\\\/:*?\"<>|]", "_"));
-                String cacheDirStr = password.getProperty(PROP_CACHE_DIR);
-                if (cacheDirStr != null && !cacheDirStr.isEmpty()) {
-                    cacheDir = new File(cacheDirStr);
+                // Ensure cache directory exists at base level
+                if (!defaultCacheDir.exists()) {
+                    defaultCacheDir.mkdirs();
                 }
 
-                // Ensure cache directory exists
-                if (!cacheDir.exists()) {
-                    cacheDir.mkdirs();
-                }
-
-                // Open the store
+                // Open the store - path structure is handled by MailCache
                 CachedStore store = MailCache.openStore(
-                        cacheDir,
+                        defaultCacheDir,
                         cacheMode,
                         server,
                         port,
@@ -140,20 +133,14 @@ public class MailCacheManager implements PasswordChangeListener {
                 return null;
             }
             
-            // Get cache directory
-            File cacheDir = new File(defaultCacheDir, username.replaceAll("[\\\\/:*?\"<>|]", "_"));
-            String cacheDirStr = password.getProperty(PROP_CACHE_DIR);
-            if (cacheDirStr != null && !cacheDirStr.isEmpty()) {
-                cacheDir = new File(cacheDirStr);
-            }
-            
-            // Ensure cache directory exists
-            if (!cacheDir.exists()) {
-                cacheDir.mkdirs();
+            // Get server name
+            String server = password.getUrl();
+            if (server == null || server.isEmpty()) {
+                server = "default_server";
             }
             
             // Open the store in offline mode
-            CachedStore store = MailCache.openOfflineStore(cacheDir, username);
+            CachedStore store = MailCache.openOfflineStore(defaultCacheDir, server, username);
             
             if (store != null) {
                 openStores.put(username, store);
@@ -378,20 +365,9 @@ public class MailCacheManager implements PasswordChangeListener {
                         cacheMode = storedMode;
                     }
                     
-                    File cacheDir = new File(defaultCacheDir, username.replaceAll("[\\\\/:*?\"<>|]", "_"));
-                    String cacheDirStr = password.getProperty(PROP_CACHE_DIR);
-                    if (cacheDirStr != null && !cacheDirStr.isEmpty()) {
-                        cacheDir = new File(cacheDirStr);
-                    }
-                    
-                    // Ensure cache directory exists
-                    if (!cacheDir.exists()) {
-                        cacheDir.mkdirs();
-                    }
-                    
                     // Open the store
                     CachedStore store = MailCache.openStore(
-                            cacheDir,
+                            defaultCacheDir,
                             cacheMode,
                             server,
                             port,
@@ -430,7 +406,7 @@ public class MailCacheManager implements PasswordChangeListener {
                 boolean needReopen = false;
                 
                 // Check if server URL changed
-                if (!existingStore.getURLName().getHost().equals(password.getUrl())) {
+                if (!existingStore.getServerName().equals(password.getUrl())) {
                     needReopen = true;
                 }
                 
@@ -477,20 +453,9 @@ public class MailCacheManager implements PasswordChangeListener {
                         CacheMode cacheMode = newCacheMode != null ? 
                                 newCacheMode : CacheMode.ACCELERATED;
                         
-                        File cacheDir = new File(defaultCacheDir, username.replaceAll("[\\\\/:*?\"<>|]", "_"));
-                        String cacheDirStr = password.getProperty(PROP_CACHE_DIR);
-                        if (cacheDirStr != null && !cacheDirStr.isEmpty()) {
-                            cacheDir = new File(cacheDirStr);
-                        }
-                        
-                        // Ensure cache directory exists
-                        if (!cacheDir.exists()) {
-                            cacheDir.mkdirs();
-                        }
-                        
                         // Open the store
                         CachedStore store = MailCache.openStore(
-                                cacheDir,
+                                defaultCacheDir,
                                 cacheMode,
                                 server,
                                 port,

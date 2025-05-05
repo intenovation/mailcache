@@ -17,8 +17,10 @@ public class CachedStore extends Store {
 
     private Store imapStore;
     private File baseCacheDirectory;  // The base cache directory
+    private File serverCacheDirectory; // The server-specific cache directory
     private File userCacheDirectory;  // The user-specific cache directory
     private String username;          // The username for this store
+    private String serverName;        // The server name for this store
     private CacheMode mode;
     private boolean connected = false;
 
@@ -49,10 +51,15 @@ public class CachedStore extends Store {
             this.mode = CacheMode.ACCELERATED; // Default to accelerated mode
         }
 
-        // Initialize username if available in URLName
-        if (urlname != null && urlname.getUsername() != null) {
-            this.username = sanitizeUsername(urlname.getUsername());
-            initializeUserDirectory();
+        // Initialize username and server if available in URLName
+        if (urlname != null) {
+            if (urlname.getUsername() != null) {
+                this.username = sanitizeUsername(urlname.getUsername());
+            }
+            if (urlname.getHost() != null) {
+                this.serverName = sanitizeServerName(urlname.getHost());
+            }
+            initializeDirectories();
         }
     }
 
@@ -97,26 +104,42 @@ public class CachedStore extends Store {
     }
 
     /**
-     * Initialize the user-specific cache directory
+     * Sanitize the server name to make it suitable for use in a file path
+     * @param server The server name to sanitize
+     * @return The sanitized server name
      */
-    private void initializeUserDirectory() {
-        if (baseCacheDirectory != null && username != null) {
-            String sanitizedUsername = sanitizeUsername(username);
-            // Check if baseCacheDirectory already ends with the sanitized username
-            String basePath = baseCacheDirectory.getAbsolutePath();
-            String lastPathComponent = basePath.substring(basePath.lastIndexOf(File.separator) + 1);
+    private String sanitizeServerName(String server) {
+        // Replace characters that are not allowed in file paths
+        return server.replaceAll("[\\\\/:*?\"<>|]", "_");
+    }
 
-            if (lastPathComponent.equals(sanitizedUsername)) {
-                // The base directory already includes the username as the final path component
-                userCacheDirectory = baseCacheDirectory;
+    /**
+     * Initialize the directory structure:
+     * baseCacheDirectory/serverName/username/
+     */
+    private void initializeDirectories() {
+        if (baseCacheDirectory != null) {
+            // Create server directory first
+            if (serverName != null && !serverName.isEmpty()) {
+                serverCacheDirectory = new File(baseCacheDirectory, serverName);
             } else {
-                // Add the username to the path
-                userCacheDirectory = new File(baseCacheDirectory, sanitizedUsername);
+                // If no server name, use a default
+                serverCacheDirectory = new File(baseCacheDirectory, "default_server");
             }
 
-            // Log the user directory being used
-            LOGGER.info("Using cache directory for user '" + username + "': " +
-                    userCacheDirectory.getAbsolutePath());
+            // Then create user directory under server directory
+            if (username != null && !username.isEmpty()) {
+                userCacheDirectory = new File(serverCacheDirectory, username);
+            } else {
+                // If no username, use a default
+                userCacheDirectory = new File(serverCacheDirectory, "default_user");
+            }
+
+            // Log the directory structure being used
+            LOGGER.info("Using cache directory hierarchy: " +
+                    baseCacheDirectory.getAbsolutePath() + " > " +
+                    serverCacheDirectory.getName() + " > " +
+                    (userCacheDirectory != null ? userCacheDirectory.getName() : "null"));
         }
     }
 
@@ -126,15 +149,25 @@ public class CachedStore extends Store {
     @Override
     protected boolean protocolConnect(String host, int port, String user, String password)
             throws MessagingException {
-        // Save the username and initialize user directory
+        // Save the server name and username and initialize directories
+        if (host != null && !host.isEmpty()) {
+            this.serverName = sanitizeServerName(host);
+        }
+        
         if (user != null && !user.isEmpty()) {
             this.username = sanitizeUsername(user);
-            initializeUserDirectory();
         }
+        
+        initializeDirectories();
 
         // Ensure the base cache directory exists
         if (baseCacheDirectory != null && !baseCacheDirectory.exists()) {
             baseCacheDirectory.mkdirs();
+        }
+
+        // Ensure the server cache directory exists
+        if (serverCacheDirectory != null && !serverCacheDirectory.exists()) {
+            serverCacheDirectory.mkdirs();
         }
 
         // Ensure the user cache directory exists
@@ -146,7 +179,7 @@ public class CachedStore extends Store {
         connected = true;
 
         // Log what mode we're connecting in
-        LOGGER.info("Connecting in " + mode + " mode for user: " + username);
+        LOGGER.info("Connecting in " + mode + " mode for server: " + serverName + ", user: " + username);
 
         // For OFFLINE mode, we're done - no IMAP needed
         if (mode == CacheMode.OFFLINE) {
@@ -341,12 +374,19 @@ public class CachedStore extends Store {
     }
 
     /**
+     * Get the server-specific cache directory
+     */
+    public File getServerCacheDirectory() {
+        return serverCacheDirectory;
+    }
+
+    /**
      * Get the user-specific cache directory
      */
     public File getCacheDirectory() {
         // Return the user-specific directory if available
-        // Otherwise, fall back to the base directory
-        return userCacheDirectory != null ? userCacheDirectory : baseCacheDirectory;
+        return userCacheDirectory != null ? userCacheDirectory : 
+               (serverCacheDirectory != null ? serverCacheDirectory : baseCacheDirectory);
     }
 
     /**
@@ -354,6 +394,13 @@ public class CachedStore extends Store {
      */
     public String getUsername() {
         return username;
+    }
+
+    /**
+     * Get the server name for this store
+     */
+    public String getServerName() {
+        return serverName;
     }
 
     /**
@@ -387,8 +434,10 @@ public class CachedStore extends Store {
     public void debugImapConnection() {
         LOGGER.info("=== IMAP Connection Debug ===");
         LOGGER.info("Current cache mode: " + getMode());
+        LOGGER.info("Server name: " + serverName);
         LOGGER.info("Username: " + username);
         LOGGER.info("Base cache directory: " + (baseCacheDirectory != null ? baseCacheDirectory.getAbsolutePath() : "null"));
+        LOGGER.info("Server cache directory: " + (serverCacheDirectory != null ? serverCacheDirectory.getAbsolutePath() : "null"));
         LOGGER.info("User cache directory: " + (userCacheDirectory != null ? userCacheDirectory.getAbsolutePath() : "null"));
 
         // Check if store exists

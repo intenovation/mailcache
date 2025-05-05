@@ -131,9 +131,9 @@ public class MailCache {
 
     /**
      * Open a cached store with IMAP connectivity
-     * Automatically organizes cache into user-specific directories
+     * Automatically organizes cache into server/user-specific directories
      *
-     * @param baseCacheDir The base directory to use for caching multiple users
+     * @param baseCacheDir The base directory to use for caching
      * @param mode The cache operation mode
      * @param imapHost The IMAP server hostname
      * @param imapPort The IMAP server port
@@ -176,14 +176,8 @@ public class MailCache {
             baseCacheDir.mkdirs();
         }
 
-        // Create user-specific directory
-        String sanitizedUsername = username.replaceAll("[\\\\/:*?\"<>|]", "_");
-        File userCacheDir = new File(baseCacheDir, sanitizedUsername);
-        if (!userCacheDir.exists()) {
-            userCacheDir.mkdirs();
-        }
-
-        Session session = createSession(userCacheDir, mode, imapHost, imapPort,
+        // The session will now create the directories with the host and username structure
+        Session session = createSession(baseCacheDir, mode, imapHost, imapPort,
                 username, password, useSSL);
 
         CachedStore newStore = (CachedStore) session.getStore();
@@ -199,8 +193,8 @@ public class MailCache {
             storeMap.put(username, newStore);
             configHashes.put(username, newConfigHash);
 
-            LOGGER.info("Successfully connected store for user: " + username +
-                    " in directory: " + newStore.getCacheDirectory().getAbsolutePath());
+            LOGGER.info("Successfully connected store for server: " + imapHost + 
+                  ", user: " + username + ", directory: " + newStore.getCacheDirectory().getAbsolutePath());
 
             // Notify listeners that a new store was added
             fireChangeEvent(new MailCacheChangeEvent(MailCache.class,
@@ -329,11 +323,12 @@ public class MailCache {
      * without server connectivity
      *
      * @param cacheDir The directory containing the cache
+     * @param serverName The server name (for path construction)
      * @param username The username for the offline store
      * @return A connected offline CachedStore
      * @throws MessagingException If there is an error creating the store
      */
-    public static CachedStore openOfflineStore(File cacheDir, String username)
+    public static CachedStore openOfflineStore(File cacheDir, String serverName, String username)
             throws MessagingException {
         // Check if we already have this offline store
         CachedStore existingStore = storeMap.get(username);
@@ -341,9 +336,18 @@ public class MailCache {
             return existingStore;
         }
 
-        // Create user-specific directory if needed
+        // Sanitize names for directory structure
+        String sanitizedServer = serverName.replaceAll("[\\\\/:*?\"<>|]", "_");
         String sanitizedUsername = username.replaceAll("[\\\\/:*?\"<>|]", "_");
-        File userCacheDir = new File(cacheDir, sanitizedUsername);
+        
+        // Create server-specific directory
+        File serverCacheDir = new File(cacheDir, sanitizedServer);
+        if (!serverCacheDir.exists()) {
+            serverCacheDir.mkdirs();
+        }
+        
+        // Create user-specific directory under server directory
+        File userCacheDir = new File(serverCacheDir, sanitizedUsername);
         if (!userCacheDir.exists()) {
             userCacheDir.mkdirs();
         }
@@ -355,6 +359,8 @@ public class MailCache {
         CachedStore offlineStore = (CachedStore) session.getStore();
 
         // For offline stores, we just need to call connect() without parameters
+        // But we'll set the server name as a property first
+        session.getProperties().setProperty("mail.imaps.host", serverName);
         offlineStore.connect();
 
         if (offlineStore.isConnected()) {
@@ -363,7 +369,7 @@ public class MailCache {
             // Use a special hash for offline stores
             configHashes.put(username, -1);
 
-            LOGGER.info("Created offline store for user: " + username);
+            LOGGER.info("Created offline store for server: " + serverName + ", user: " + username);
 
             // Notify listeners
             fireChangeEvent(new MailCacheChangeEvent(MailCache.class,
@@ -373,5 +379,18 @@ public class MailCache {
         }
 
         return null;
+    }
+
+    /**
+     * Legacy method for backward compatibility
+     * 
+     * @param cacheDir The directory containing the cache
+     * @param username The username for the offline store
+     * @return A connected offline CachedStore
+     * @throws MessagingException If there is an error creating the store
+     */
+    public static CachedStore openOfflineStore(File cacheDir, String username)
+            throws MessagingException {
+        return openOfflineStore(cacheDir, "default_server", username);
     }
 }

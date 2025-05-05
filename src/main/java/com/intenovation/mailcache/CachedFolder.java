@@ -863,6 +863,11 @@ public class CachedFolder extends Folder {
                         }
                     }
                 }
+            } else {
+
+
+                LOGGER.severe("messagesDir does not exist:"+messagesDir);
+
             }
         }
 
