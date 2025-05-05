@@ -962,7 +962,7 @@ public class CachedFolder extends Folder {
     }
 
     @Override
-    public int getMessageCount() throws MessagingException {
+        public int getMessageCount() throws MessagingException {
         checkOpen();
         CacheMode cacheMode = cachedStore.getMode();
 
@@ -971,28 +971,15 @@ public class CachedFolder extends Folder {
             return cachedMessageCount;
         }
 
-        // Always check cache first for all modes except REFRESH
-        if (cacheMode != CacheMode.REFRESH) {
+        // If not supposed to read from server initially, use cache count
+        if (!cacheMode.shouldReadFromServer()) {
             int cacheCount = countCacheMessages();
-
-            // In OFFLINE mode or when server is unavailable, use cache count
-            if (cacheMode == CacheMode.OFFLINE ||
-                    (cacheMode == CacheMode.ACCELERATED && (imapFolder == null || !imapFolder.isOpen()))) {
-
-                cachedMessageCount = cacheCount;
-                return cacheCount;
-            }
-
-            // For ONLINE and ACCELERATED modes with server connection,
-            // use cache count if it's non-zero
-            if ((cacheMode == CacheMode.ONLINE || cacheMode == CacheMode.ACCELERATED) && cacheCount > 0) {
-                cachedMessageCount = cacheCount;
-                return cacheCount;
-            }
+            cachedMessageCount = cacheCount;
+            return cacheCount;
         }
 
-        // For modes that use server search, get from IMAP
-        if (cacheMode.shouldSearchOnServer()) {
+        // For modes that use the server (like REFRESH)
+        if (cacheMode.shouldReadFromServer()) {
             // Get IMAP folder with lazy initialization
             Folder imapFolder = getImapFolder();
 
