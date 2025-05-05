@@ -2,7 +2,7 @@
 # mailcache-cli.sh - CLI script for MailCache integrated system
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-JAR_PATH="$SCRIPT_DIR/mailcache-1.0.0-jar-with-dependencies.jar"
+JAR_PATH="$SCRIPT_DIR/target/mailcache-1.0.0-jar-with-dependencies.jar"
 
 if [ $# -eq 0 ]; then
     # Show usage if no arguments provided
