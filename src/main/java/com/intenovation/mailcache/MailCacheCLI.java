@@ -172,8 +172,10 @@ public class MailCacheCLI extends AbstractApplication {
         // Add a task to synchronize a folder
         tasks.add(new SynchronizeFolderTask());
         
-        // Add a task to archive old messages
+        // Add a task to read messages
         tasks.add(readMessageTask);
+
+        tasks.add(new ListStores(passwordManagerApp.getUIService()));
         
         return tasks;
     }
