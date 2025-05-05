@@ -918,49 +918,6 @@ public class CachedFolder extends Folder {
         return 0;
     }
 
-    /**
-     * Count unread messages in the cache directory
-     * Used internally as an optimization
-     *
-     * @return The number of unread messages in the cache
-     */
-    private int countCacheUnreadMessages() {
-        int unreadCount = 0;
-        if (cacheDir != null) {
-            File messagesDir = new File(cacheDir, "messages");
-            if (messagesDir.exists()) {
-                File[] messageDirs = messagesDir.listFiles(File::isDirectory);
-                if (messageDirs != null) {
-                    for (File messageDir : messageDirs) {
-                        // Check if message is marked as seen in flags.txt
-                        File flagsFile = new File(messageDir, "flags.txt");
-                        if (flagsFile.exists()) {
-                            try (BufferedReader reader = new BufferedReader(new java.io.FileReader(flagsFile))) {
-                                String line;
-                                boolean seen = false;
-                                while ((line = reader.readLine()) != null) {
-                                    if ("SEEN".equals(line)) {
-                                        seen = true;
-                                        break;
-                                    }
-                                }
-                                if (!seen) {
-                                    unreadCount++;
-                                }
-                            } catch (IOException e) {
-                                LOGGER.log(Level.WARNING, "Error reading flags file", e);
-                            }
-                        } else {
-                            // No flags file means not seen
-                            unreadCount++;
-                        }
-                    }
-                }
-            }
-        }
-        return unreadCount;
-    }
-
     @Override
         public int getMessageCount() throws MessagingException {
         checkOpen();
@@ -1362,6 +1319,50 @@ public class CachedFolder extends Folder {
         }
     }
 
+    /**
+     * Count unread messages in the cache directory
+     * Used internally to get accurate unread message counts from the file system.
+     *
+     * @return The number of unread messages in the cache
+     */
+    private int countCacheUnreadMessages() {
+        int unreadCount = 0;
+        if (cacheDir != null) {
+            File messagesDir = new File(cacheDir, "messages");
+            if (messagesDir.exists()) {
+                File[] messageDirs = messagesDir.listFiles(File::isDirectory);
+                if (messageDirs != null) {
+                    for (File messageDir : messageDirs) {
+                        // Check if message is marked as seen in flags.txt
+                        File flagsFile = new File(messageDir, "flags.txt");
+                        if (flagsFile.exists()) {
+                            try (BufferedReader reader = new BufferedReader(
+                                    new java.io.FileReader(flagsFile))) {
+                                String line;
+                                boolean seen = false;
+                                while ((line = reader.readLine()) != null) {
+                                    if ("SEEN".equals(line)) {
+                                        seen = true;
+                                        break;
+                                    }
+                                }
+                                if (!seen) {
+                                    unreadCount++;
+                                }
+                            } catch (IOException e) {
+                                LOGGER.log(Level.WARNING, "Error reading flags file", e);
+                            }
+                        } else {
+                            // No flags file means not seen
+                            unreadCount++;
+                        }
+                    }
+                }
+            }
+        }
+        return unreadCount;
+    }
+
     @Override
     public int getUnreadMessageCount() throws MessagingException {
         checkOpen();
@@ -1372,28 +1373,15 @@ public class CachedFolder extends Folder {
             return cachedUnreadCount;
         }
 
-        // Always check cache first for all modes except REFRESH
-        if (cacheMode != CacheMode.REFRESH) {
+        // If not supposed to read from server initially, use cache count
+        if (!cacheMode.shouldReadFromServer()) {
             int cacheUnreadCount = countCacheUnreadMessages();
-
-            // In OFFLINE mode or when server is unavailable, use cache count
-            if (cacheMode == CacheMode.OFFLINE ||
-                    (cacheMode == CacheMode.ACCELERATED && (imapFolder == null || !imapFolder.isOpen()))) {
-
-                cachedUnreadCount = cacheUnreadCount;
-                return cacheUnreadCount;
-            }
-
-            // For ONLINE and ACCELERATED modes with server connection,
-            // use cache count if it's non-zero
-            if ((cacheMode == CacheMode.ONLINE || cacheMode == CacheMode.ACCELERATED) && cacheUnreadCount > 0) {
-                cachedUnreadCount = cacheUnreadCount;
-                return cacheUnreadCount;
-            }
+            cachedUnreadCount = cacheUnreadCount;
+            return cacheUnreadCount;
         }
 
-        // For modes that use server search, get from IMAP
-        if (cacheMode.shouldSearchOnServer()) {
+        // For modes that use the server (like REFRESH)
+        if (cacheMode.shouldReadFromServer()) {
             // Get IMAP folder with lazy initialization
             Folder imapFolder = getImapFolder();
 
@@ -1412,7 +1400,7 @@ public class CachedFolder extends Folder {
             }
         }
 
-        // Fall back to counting unread messages from cache
+        // Fall back to cache count
         int unreadCount = countCacheUnreadMessages();
         cachedUnreadCount = unreadCount;
         return unreadCount;
