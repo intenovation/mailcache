@@ -14,7 +14,7 @@ public class ApplyMessageTaskToFolder extends AbstractFolderTask {
     private final AbstractMessageTask messageTask;
     
     public ApplyMessageTaskToFolder(AbstractMessageTask messageTask) {
-        super("apply-to-folder", "Apply '" + messageTask.getName() + "' to all messages in folder");
+        super("apply-"+messageTask.getName(), "Apply '" + messageTask.getName() + "' to all messages in folder");
         this.messageTask = messageTask;
     }
     
