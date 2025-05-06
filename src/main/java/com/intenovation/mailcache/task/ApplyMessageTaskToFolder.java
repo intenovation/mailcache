@@ -28,18 +28,24 @@ public class ApplyMessageTaskToFolder extends AbstractFolderTask {
             folder.open(javax.mail.Folder.READ_WRITE);
             
             try {
+                int messageCount=folder.getMessageCount();
+                callback.update(0, "messageCount: " + messageCount + " messages");
                 Message[] messages = folder.getMessages();
                 int totalMessages = messages.length;
-                
+
+                if (totalMessages != messageCount) {
+                    return totalMessages+" totalMessages vs messageCount "+messageCount;
+                }
+
                 if (totalMessages == 0) {
                     return "No messages in folder";
                 }
                 
-                callback.update(0, "Processing " + totalMessages + " messages");
+                callback.update(1, "Processing " + totalMessages + " messages");
                 
                 int successCount = 0;
                 int errorCount = 0;
-                
+                String result="";
                 for (int i = 0; i < totalMessages; i++) {
                     if (Thread.currentThread().isInterrupted()) {
                         throw new InterruptedException("Task cancelled");
@@ -64,7 +70,9 @@ public class ApplyMessageTaskToFolder extends AbstractFolderTask {
                             };
                             
                             // Execute the message task
-                            messageTask.executeOnMessage(subCallback, cachedMessage);
+                            result+=i+" "+messageTask.getName()+":";
+                            result+=messageTask.executeOnMessage(subCallback, cachedMessage);
+                            result+="\n";
                             successCount++;
                         } else {
                             errorCount++;
@@ -77,8 +85,8 @@ public class ApplyMessageTaskToFolder extends AbstractFolderTask {
                 }
                 
                 callback.update(100, "Complete");
-                
-                return "Processed " + totalMessages + " messages. Success: " + successCount + ", Errors: " + errorCount;
+                // apply-read rechnung@intenovation.com:2024/amwater.com
+                return result+"Processed " + totalMessages + " messages. Success: " + successCount + ", Errors: " + errorCount;
                 
             } finally {
                 folder.close(false);

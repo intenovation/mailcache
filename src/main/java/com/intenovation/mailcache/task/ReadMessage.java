@@ -20,12 +20,17 @@ public class ReadMessage extends AbstractMessageTask {
     @Override
     protected String executeOnMessage(ProgressStatusCallback callback, CachedMessage message) throws InterruptedException {
         String subject = null;
+        String from = null;
+        String date = null;
+
         try {
             subject = message.getSubject();
+            from = ""+message.getSender();
+            date = ""+message.getSentDate();
         } catch (MessagingException e) {
             throw new RuntimeException(e);
         }
         callback.update(50,subject);
-        return "";
+        return date +"\t"+ from+"\t"+subject;
     }
 }
