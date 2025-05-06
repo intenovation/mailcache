@@ -8,6 +8,7 @@ import javax.mail.*;
 import javax.mail.internet.InternetAddress;
 import javax.mail.internet.MimeMessage;
 import java.io.*;
+import java.util.Arrays;
 import java.util.Date;
 import java.util.Properties;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -2002,5 +2003,29 @@ public class CachedMessage extends MimeMessage {
         }
 
         return null;
+    }
+
+    @Override
+    public String toString() {
+        return "CachedMessage{" +
+                "imapMessage=" + imapMessage +
+                ", messageDir=" + messageDir +
+                ", contentLoaded=" + contentLoaded +
+                ", folder=" + folder +
+                ", messageProperties=" + messageProperties +
+                ", textContent='" + textContent + '\'' +
+                ", htmlContent='" + htmlContent + '\'' +
+                ", hasHtmlContent=" + hasHtmlContent +
+                ", hasTextContent=" + hasTextContent +
+                ", flags=" + flags +
+                ", sentDate=" + sentDate +
+                ", receivedDate=" + receivedDate +
+                ", subject='" + subject + '\'' +
+                ", from='" + from + '\'' +
+                ", to=" + Arrays.toString(to) +
+                ", cc=" + Arrays.toString(cc) +
+                ", replyTo='" + replyTo + '\'' +
+                ", listeners=" + listeners +
+                '}';
     }
 }
