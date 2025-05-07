@@ -25,9 +25,9 @@ public class ReadMessage extends AbstractMessageTask {
 
         try {
             subject = message.getSubject();
-            from = ""+message.getSender();
+            from = ""+message.getCleanFrom();
             date = ""+message.getSentDate();
-            System.out.println(message);
+            //System.out.println(message.toShortString());
         } catch (MessagingException e) {
             throw new RuntimeException(e);
         }

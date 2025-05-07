@@ -102,13 +102,13 @@ public class CachedMessage extends MimeMessage {
     /**
      * Create a new CachedMessage from an IMAP message
      *
-     * @param folder The folder containing this message
+     * @param folder      The folder containing this message
      * @param imapMessage The IMAP message to cache
-     * @param overwrite Whether to overwrite existing cache if it exists
+     * @param overwrite   Whether to overwrite existing cache if it exists
      */
     public CachedMessage(CachedFolder folder, Message imapMessage, boolean overwrite)
             throws MessagingException {
-        super(((CachedStore)folder.getStore()).getSession());
+        super(((CachedStore) folder.getStore()).getSession());
         this.folder = folder;
         this.imapMessage = imapMessage;
         this.flags = new Flags();
@@ -167,7 +167,7 @@ public class CachedMessage extends MimeMessage {
      */
     public CachedMessage(CachedFolder folder, File messageDir)
             throws MessagingException {
-        super(((CachedStore)folder.getStore()).getSession());
+        super(((CachedStore) folder.getStore()).getSession());
         this.folder = folder;
         this.messageDir = messageDir;
         this.flags = new Flags();
@@ -309,7 +309,7 @@ public class CachedMessage extends MimeMessage {
     /**
      * Checks if content is HTML based on MIME type and content
      *
-     * @param part The message part to check
+     * @param part    The message part to check
      * @param content The content of the part
      * @return true if the content is HTML, false otherwise
      */
@@ -1698,7 +1698,7 @@ public class CachedMessage extends MimeMessage {
         // If we have an IMAP message, use it
         if (imapMessage != null) {
             if (imapMessage instanceof MimeMessage) {
-                ((MimeMessage)imapMessage).writeTo(os);
+                ((MimeMessage) imapMessage).writeTo(os);
                 return;
             }
         }
@@ -1711,7 +1711,7 @@ public class CachedMessage extends MimeMessage {
      * Add an additional file to the message directory
      *
      * @param filename The name of the file to create/update
-     * @param content The content to write to the file
+     * @param content  The content to write to the file
      * @throws IOException If there is an error writing the file
      */
     public void addAdditionalFile(String filename, String content) throws IOException {
@@ -1844,7 +1844,7 @@ public class CachedMessage extends MimeMessage {
     /**
      * Save an attachment to an external file
      *
-     * @param attachmentName The name of the attachment in the message
+     * @param attachmentName  The name of the attachment in the message
      * @param destinationFile The file to save it to
      * @return true if successful, false otherwise
      * @throws IOException If there is an error reading or writing the attachment
@@ -1873,7 +1873,7 @@ public class CachedMessage extends MimeMessage {
      *
      * @param attachmentName The name of the attachment
      * @return The text content of the attachment, or null if not available or not convertible
-     * @throws IOException If there is an error reading or processing the attachment
+     * @throws IOException        If there is an error reading or processing the attachment
      * @throws MessagingException If there is a messaging error
      */
     public String getTextAttachment(String attachmentName) throws IOException, MessagingException {
@@ -1969,6 +1969,35 @@ public class CachedMessage extends MimeMessage {
         return null;
     }
 
+
+    public String getCleanFrom() throws MessagingException {
+    String from = "unknown";
+    // Address[] froms = msg.getFrom();
+    // String email = froms == null ? null : ((InternetAddress)
+    // froms[0]).getAddress();
+                if(this.getReplyTo().length >=1)
+
+    {
+        from = ((InternetAddress) this.getReplyTo()[0]).getAddress();
+    } else if(this.getFrom().length >=1)
+
+    {
+        from = ((InternetAddress) this.getFrom()[0]).getAddress();
+    }
+
+    // if (!from.contains("stacart"))
+    // continue;
+    int atPos = from.indexOf('@');
+                if(atPos >25)
+
+    {
+        from = "randomized@" + from.substring(atPos + 1);
+        atPos = 10;
+    }
+                return from;
+}
+
+
     /**
      * Get reply-to addresses
      */
@@ -2015,6 +2044,24 @@ public class CachedMessage extends MimeMessage {
                 ", messageProperties=" + messageProperties +
                 ", textContent='" + textContent + '\'' +
                 ", htmlContent='" + htmlContent + '\'' +
+                ", hasHtmlContent=" + hasHtmlContent +
+                ", hasTextContent=" + hasTextContent +
+                ", flags=" + flags +
+                ", sentDate=" + sentDate +
+                ", receivedDate=" + receivedDate +
+                ", subject='" + subject + '\'' +
+                ", from='" + from + '\'' +
+                ", to=" + Arrays.toString(to) +
+                ", cc=" + Arrays.toString(cc) +
+                ", replyTo='" + replyTo + '\'' +
+                ", listeners=" + listeners +
+                '}';
+    }
+    public String toShortString() {
+        return "CachedMessage{" +
+                ", messageDir=" + messageDir +
+                ", contentLoaded=" + contentLoaded +
+                ", messageProperties=" + messageProperties +
                 ", hasHtmlContent=" + hasHtmlContent +
                 ", hasTextContent=" + hasTextContent +
                 ", flags=" + flags +
