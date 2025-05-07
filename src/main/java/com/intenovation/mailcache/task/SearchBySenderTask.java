@@ -107,11 +107,13 @@ public class SearchBySenderTask extends BackgroundTask {
                     String subject = cachedMsg.getSubject();
                     String from = cachedMsg.getCleanFrom();
                     java.util.Date date = cachedMsg.getSentDate();
+                    String folder = cachedMsg.getFolder().getFullName();
                     
                     result.append(++count).append(". ")
                           .append(date != null ? date.toString() : "Unknown date")
                           .append(" - From: ").append(from)
                           .append(" - Subject: ").append(subject)
+                            .append(" - Folder: ").append(folder)
                           .append("\n");
                     
                     int progress = 50 + (count * 50 / messages.length);

@@ -466,6 +466,7 @@ public class CachedMessage extends MimeMessage {
             messageDir.mkdirs();
         }
 
+        LOGGER.log(Level.INFO, "saving message properties");
         try {
             // Save properties first for better referencing
             try {
@@ -497,6 +498,8 @@ public class CachedMessage extends MimeMessage {
                 if (from != null && from.length > 0) {
                     this.from = from[0].toString();
                     messageProperties.setProperty(PROP_FROM, this.from);
+
+                    LOGGER.log(Level.INFO, "saving from:"+this.from);
                 }
 
                 // Save reply-to addresses
@@ -830,6 +833,7 @@ public class CachedMessage extends MimeMessage {
                     Address[] fromAddresses = msg.getFrom();
                     if (fromAddresses != null && fromAddresses.length > 0) {
                         this.from = fromAddresses[0].toString();
+                        LOGGER.fine("found from address " + this.from + " - attempting to save");
                     }
 
                     // Get Message-ID header
