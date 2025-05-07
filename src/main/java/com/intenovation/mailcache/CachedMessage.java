@@ -1971,31 +1971,27 @@ public class CachedMessage extends MimeMessage {
 
 
     public String getCleanFrom() throws MessagingException {
-    String from = "unknown";
-    // Address[] froms = msg.getFrom();
-    // String email = froms == null ? null : ((InternetAddress)
-    // froms[0]).getAddress();
-                if(this.getReplyTo().length >=1)
+        String from = "unknown";
+        // Address[] froms = msg.getFrom();
+        // String email = froms == null ? null : ((InternetAddress)
+        // froms[0]).getAddress();
+        if (this.getReplyTo() != null && this.getReplyTo().length >= 1) {
+            from = ((InternetAddress) this.getReplyTo()[0]).getAddress();
+        } else if (this.getFrom()!=null && this.getFrom().length >= 1) {
+            from = ((InternetAddress) this.getFrom()[0]).getAddress();
+        }else if (this.getSender()!=null ) {
+            from = ((InternetAddress) this.getSender()).getAddress();
+        }
 
-    {
-        from = ((InternetAddress) this.getReplyTo()[0]).getAddress();
-    } else if(this.getFrom().length >=1)
-
-    {
-        from = ((InternetAddress) this.getFrom()[0]).getAddress();
+        // if (!from.contains("stacart"))
+        // continue;
+        int atPos = from.indexOf('@');
+        if (atPos > 25) {
+            from = "randomized@" + from.substring(atPos + 1);
+            atPos = 10;
+        }
+        return from;
     }
-
-    // if (!from.contains("stacart"))
-    // continue;
-    int atPos = from.indexOf('@');
-                if(atPos >25)
-
-    {
-        from = "randomized@" + from.substring(atPos + 1);
-        atPos = 10;
-    }
-                return from;
-}
 
 
     /**
@@ -2057,6 +2053,7 @@ public class CachedMessage extends MimeMessage {
                 ", listeners=" + listeners +
                 '}';
     }
+
     public String toShortString() {
         return "CachedMessage{" +
                 ", messageDir=" + messageDir +
