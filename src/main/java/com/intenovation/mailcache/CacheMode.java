@@ -10,17 +10,17 @@ public enum CacheMode implements DescribedEnum {
     /**
      * Offline mode - all operations use local cache, writing operations disabled
      */
-    OFFLINE("Uses local cache only, no server connection. All operations are read-only.", false, false, false, false, false),
+    OFFLINE("Searching and Reading uses cache only, no server connection. All operations are read-only.", false, false, false, false, false),
 
     /**
      * Accelerated mode - reading is local, writing happens both locally and on server
      */
-    ACCELERATED("Reading uses cache, writing to both cache and server. Best balance of performance and functionality.", false, false, true, false, true),
+    ACCELERATED("Searching and Reading uses cache only, writing to both cache and server. Best balance of performance and functionality.", false, false, true, false, true),
 
     /**
      * Online mode - searching happens online, reading uses cache for speed, writing happens both locally and on server
      */
-    ONLINE("Searching on server, reading from cache for speed. Good when real-time search results are needed. should not initially read from server but do so if not available", false, true, true, false, true),
+    ONLINE("Searching on server, reading first from cache for speed, but if it fails fall back to server. Good when real-time search results are needed. should not initially read from server but do so if not available", false, true, true, false, true),
 
     /**
      * Refresh mode - always gets latest from server, overwrites cache completely, writing happens both locally and on server

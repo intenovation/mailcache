@@ -1538,8 +1538,8 @@ public class CachedFolder extends Folder {
         checkOpen();
         CacheMode cacheMode = cachedStore.getMode();
 
-        // For modes that prioritize cache, always search locally first
-        if (cacheMode == CacheMode.OFFLINE || cacheMode == CacheMode.ACCELERATED) {
+        // For modes that don't use server search, always search locally
+        if (!cacheMode.shouldSearchOnServer()) {
             LOGGER.info("Performing local cache search in " + cacheMode + " mode");
             CachedMessage[] messages = getMessages();
             List<CachedMessage> results = new ArrayList<>();
@@ -1555,33 +1555,33 @@ public class CachedFolder extends Folder {
         }
 
         // For modes that use server search, search on server
-        if (cacheMode.shouldSearchOnServer()) {
-            // Get IMAP folder with lazy initialization
-            Folder imapFolder = getImapFolder();
+        // Get IMAP folder with lazy initialization
+        Folder imapFolder = getImapFolder();
 
-            if (imapFolder != null && imapFolder.isOpen()) {
-                try {
-                    Message[] serverResults = imapFolder.search(term);
+        if (imapFolder != null && imapFolder.isOpen()) {
+            try {
+                Message[] serverResults = imapFolder.search(term);
 
-                    // Create cached versions of the server results
-                    List<CachedMessage> cachedResults = new ArrayList<>();
-                    for (Message msg : serverResults) {
-                        cachedResults.add(new CachedMessage(this, msg));
-                    }
+                // Create cached versions of the server results
+                List<CachedMessage> cachedResults = new ArrayList<>();
+                for (Message msg : serverResults) {
+                    cachedResults.add(new CachedMessage(this, msg));
+                }
 
-                    LOGGER.info("Server search found " + cachedResults.size() + " messages");
-                    return cachedResults.toArray(new CachedMessage[0]);
-                } catch (MessagingException e) {
-                    LOGGER.log(Level.WARNING, "Error searching on server, falling back to local cache", e);
-                    // Continue with local search if mode allows fallback
-                    if (!cacheMode.shouldReadFromServerAfterCacheMiss()) {
-                        throw e;
-                    }
+                LOGGER.info("Server search found " + cachedResults.size() + " messages");
+                return cachedResults.toArray(new CachedMessage[0]);
+            } catch (MessagingException e) {
+                LOGGER.log(Level.WARNING, "Error searching on server, falling back to local cache", e);
+                // Continue with local search if mode allows fallback
+                if (!cacheMode.shouldReadFromServerAfterCacheMiss()) {
+                    throw e;
                 }
             }
         }
 
-        // Fallback to local cache search
+
+        // No Fallback to local cache If we did not find this on the server, which is the leading system, it did not exist.
+        // what we do here is check it really does not exist, otherwise we log an error
         LOGGER.info("Performing local cache search as fallback");
         CachedMessage[] messages = getMessages();
         List<CachedMessage> results = new ArrayList<>();
@@ -1589,9 +1589,14 @@ public class CachedFolder extends Folder {
         for (CachedMessage msg : messages) {
             if (term.match(msg)) {
                 results.add(msg);
+                System.out.println("found message matching "+term);
+                LOGGER.severe("found message matching  " + term + " that is not on server!");
+                throw new MessagingException("found message matching  " + term + " that is not on server!");
+
             }
         }
 
+        //return nothing
         LOGGER.info("Local search found " + results.size() + " messages");
         return results.toArray(new CachedMessage[0]);
     }
