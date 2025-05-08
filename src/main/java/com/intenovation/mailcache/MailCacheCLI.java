@@ -192,8 +192,9 @@ public class MailCacheCLI extends AbstractApplication {
         // Add a task to read messages
         tasks.add(readMessageTask);
 
-        // Add the new search by sender task
-        tasks.add(new SearchBySenderTask());
+        // Add search tasks that apply the read message task to search results
+        tasks.add(new SearchBySenderTask(readMessageTask));
+        tasks.add(new SearchBySubjectTask(readMessageTask));
 
         // Add a task to list stores
         if (passwordManagerApp != null) {
