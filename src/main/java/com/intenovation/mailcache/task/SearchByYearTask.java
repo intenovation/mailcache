@@ -18,14 +18,13 @@ import java.util.logging.Logger;
 /**
  * Task that searches for emails from a specific year and organizes them.
  */
-public class SearchByYearTask extends AbstractSearchTask {
+public class SearchByYearTask extends ApplyMessageTaskToSearch {
     private static final Logger LOGGER = Logger.getLogger(SearchByYearTask.class.getName());
 
-    private final AbstractMessageTask messageTask;
-    
+
     public SearchByYearTask(AbstractMessageTask messageTask) {
-        super("search-year-"+messageTask.getName(), "Search for emails from a specific year and organize them");
-        this.messageTask = messageTask;
+        super("search-year-"+messageTask.getName(), "Search for emails from a specific year and organize them",messageTask);
+
 
     }
     
@@ -62,53 +61,5 @@ public class SearchByYearTask extends AbstractSearchTask {
         }
     }
     
-    @Override
-    protected String processSearchResults(ProgressStatusCallback callback, Message[] messages, String searchTerm)
-            throws InterruptedException, MessagingException {
-        // Apply organize task to each message found
-        int totalMessages = messages.length;
-        if (totalMessages == 0) {
-            return "No messages found from year: " + searchTerm;
-        }
-        
-        LOGGER.info("Found " + totalMessages + " messages from year " + searchTerm);
-        callback.update(20, "Found " + totalMessages + " messages from year " + searchTerm);
-        
-        int successCount = 0;
-        int errorCount = 0;
-        
-        for (int i = 0; i < totalMessages; i++) {
-            if (Thread.currentThread().isInterrupted()) {
-                throw new InterruptedException("Task cancelled");
-            }
-            
-            Message message = messages[i];
-            int progress = 20 + ((i * 80) / totalMessages);
-            
-            try {
-                callback.update(progress, "Organizing message " + (i + 1) + "/" + totalMessages);
-                
-                if (message instanceof CachedMessage) {
-                    CachedMessage cachedMessage = (CachedMessage) message;
-                    String result = messageTask.executeOnMessage(callback, cachedMessage);
-                    if (result.startsWith("Successfully")) {
-                        successCount++;
-                    } else {
-                        errorCount++;
-                    }
-                } else {
-                    errorCount++;
-                    LOGGER.warning("Message is not a CachedMessage: " + message);
-                }
-            } catch (Exception e) {
-                errorCount++;
-                LOGGER.log(Level.WARNING, "Error organizing message: " + e.getMessage(), e);
-            }
-        }
-        
-        callback.update(100, "Completed organizing " + successCount + " messages");
-        
-        return "Processed " + totalMessages + " messages from year " + searchTerm + 
-               ". Organized: " + successCount + ", Errors: " + errorCount;
-    }
+
 }

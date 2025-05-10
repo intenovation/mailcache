@@ -2019,7 +2019,7 @@ public class CachedMessage extends MimeMessage {
             try {
                 return InternetAddress.parse(replyToStr);
             } catch (Exception e) {
-                LOGGER.log(Level.WARNING, "Error parsing REPLY-TO addresses", e);
+                //LOGGER.log(Level.WARNING, "Error parsing REPLY-TO addresses", e);
             }
         }
 

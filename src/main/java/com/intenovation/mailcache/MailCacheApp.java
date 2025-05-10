@@ -138,6 +138,8 @@ public class MailCacheApp extends AbstractApplication {
 
         // Add the task that applies message reading to all messages in a folder
         tasks.add(new ApplyMessageTaskToFolder(readMessageTask));
+        tasks.add(new ApplyToYearDomainTask(true,readMessageTask));
+        tasks.add(new ApplyToYearDomainTask(false,readMessageTask));
 
         // Add a task to synchronize a folder
         tasks.add(new SynchronizeFolderTask());
@@ -148,6 +150,7 @@ public class MailCacheApp extends AbstractApplication {
         // Add search tasks that apply the read message task to search results
         tasks.add(new SearchBySenderTask(readMessageTask));
         tasks.add(new SearchBySubjectTask(readMessageTask));
+        tasks.add(new SearchByYearTask(readMessageTask));
 
         // Add list stores task
         tasks.add(new ListStoresTask());

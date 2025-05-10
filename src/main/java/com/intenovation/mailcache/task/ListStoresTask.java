@@ -20,6 +20,11 @@ public class ListStoresTask extends BackgroundTask {
     }
 
     @Override
+    public boolean hasParameter(){
+        return false;
+    }
+
+    @Override
     public String execute(ProgressStatusCallback callback, Object parameter) throws InterruptedException {
         callback.update(0, "Getting all mail stores...");
 

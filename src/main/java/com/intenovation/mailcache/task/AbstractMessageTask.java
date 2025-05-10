@@ -35,8 +35,9 @@ public abstract class AbstractMessageTask extends BackgroundTask {
     @Override
     public String execute(ProgressStatusCallback callback, Object parameter) 
             throws InterruptedException {
+
         if (!(parameter instanceof CachedMessage)) {
-            throw new IllegalArgumentException("Parameter must be a CachedMessage");
+            throw new IllegalArgumentException("Parameter must be a CachedMessage, not "+ parameter.toString());
         }
         
         CachedMessage message = (CachedMessage) parameter;
