@@ -3,6 +3,7 @@ package com.intenovation.mailcache.task;
 import com.intenovation.appfw.task.BackgroundTask;
 import com.intenovation.appfw.task.ProgressStatusCallback;
 import com.intenovation.appfw.ui.UIService;
+import com.intenovation.appfw.ui.UIServiceRegistry;
 import com.intenovation.mailcache.CachedStore;
 import com.intenovation.mailcache.MailCache;
 
@@ -17,11 +18,11 @@ import java.util.logging.Logger;
 public class ListStores extends BackgroundTask {
     private static final Logger LOGGER = Logger.getLogger(ListStores.class.getName());
     
-    private final UIService uiService;
+
     
-    public ListStores(UIService uiService) {
+    public ListStores() {
         super("list-stores", "lists all available mail stores");
-        this.uiService = uiService;
+
     }
     
     @Override
@@ -34,7 +35,7 @@ public class ListStores extends BackgroundTask {
             // Log this as a warning since we should have stores
             LOGGER.warning("No mail stores found! Check if stores were properly initialized.");
             callback.update(100, "No mail stores found!");
-            uiService.showWarning("No Stores Found", 
+            UIServiceRegistry.getUIService().showWarning("No Stores Found",
                 "No mail stores were found. Please check your configuration and ensure stores are initialized.");
             return "No mail stores found";
         }
@@ -65,7 +66,7 @@ public class ListStores extends BackgroundTask {
         
         // Show the result in the UI
         if (count > 0) {
-            uiService.showInfo("Mail Stores", 
+            UIServiceRegistry.getUIService().showInfo("Mail Stores",
                     "Found " + count + " mail stores:\n\n" + result.toString());
         }
         
