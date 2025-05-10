@@ -3,10 +3,7 @@ package com.intenovation.mailcache;
 import com.intenovation.mailcache.CachedStore;
 import com.intenovation.mailcache.MailCache;
 import com.intenovation.mailcache.CacheMode;
-import com.intenovation.passwordmanager.Password;
-import com.intenovation.passwordmanager.PasswordChangeListener;
-import com.intenovation.passwordmanager.PasswordManagerApp;
-import com.intenovation.passwordmanager.PasswordType;
+import com.intenovation.passwordmanager.*;
 
 import javax.mail.MessagingException;
 import java.io.File;
@@ -29,20 +26,19 @@ public class MailCacheManager implements PasswordChangeListener {
     public static final String PROP_CACHE_MODE = "mail.cache.mode";
     public static final String PROP_CACHE_DIR = "mail.cache.directory";
 
-    private PasswordManagerApp passwordManager;
+    private PasswordManager passwordManager;
     private File defaultCacheDir;
     private Map<String, CachedStore> openStores = new HashMap<>();
 
     /**
      * Create a new mail cache manager
-     *
-     * @param passwordManager The password manager to use
+     *he password manager to use
      * @param defaultCacheDir The default cache directory
      */
-    public MailCacheManager(PasswordManagerApp passwordManager, File defaultCacheDir) {
-        this.passwordManager = passwordManager;
-        this.defaultCacheDir = defaultCacheDir;
+    public MailCacheManager( File defaultCacheDir) {
 
+        this.defaultCacheDir = defaultCacheDir;
+        passwordManager= PasswordManager.getInstance();
         // Register as a listener for password changes
         passwordManager.addPasswordChangeListener(this);
     }
@@ -53,7 +49,7 @@ public class MailCacheManager implements PasswordChangeListener {
      * @return Map of username to CachedStore
      */
     public Map<String, CachedStore> initializeAllStores() {
-        List<Password> imapPasswords = PasswordManagerApp.getImapPasswords();
+        List<Password> imapPasswords = passwordManager.getImapPasswords();
 
         for (Password password : imapPasswords) {
             try {
@@ -119,7 +115,7 @@ public class MailCacheManager implements PasswordChangeListener {
         try {
             // Look up the password record
             Password password = null;
-            List<Password> imapPasswords = PasswordManagerApp.getImapPasswords();
+            List<Password> imapPasswords = passwordManager.getImapPasswords();
             
             for (Password p : imapPasswords) {
                 if (p.getUsername().equals(username)) {
