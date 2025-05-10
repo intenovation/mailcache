@@ -131,7 +131,7 @@ public class MailCacheApp extends AbstractApplication {
         List<BackgroundTask> tasks = new ArrayList<>();
 
         // Create the message reading task
-        ReadMessage readMessageTask = new ReadMessage();
+        ReadMessageTask readMessageTask = new ReadMessageTask();
 
         // Add the list folders task
         tasks.add(new ListFoldersTask());
@@ -149,9 +149,8 @@ public class MailCacheApp extends AbstractApplication {
         tasks.add(new SearchBySenderTask(readMessageTask));
         tasks.add(new SearchBySubjectTask(readMessageTask));
 
-
-       tasks.add(new ListStores());
-
+        // Add list stores task
+        tasks.add(new ListStoresTask());
 
         return tasks;
     }

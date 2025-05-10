@@ -1,21 +1,18 @@
 package com.intenovation.mailcache.task;
 
 import com.intenovation.appfw.task.ProgressStatusCallback;
-import com.intenovation.mailcache.CachedFolder;
 import com.intenovation.mailcache.CachedMessage;
 
-import javax.mail.Message;
 import javax.mail.MessagingException;
 
 /**
- * Task that reads a message.
+ * Task that reads a message and displays its basic information.
  */
-public class ReadMessage extends AbstractMessageTask {
+public class ReadMessageTask extends AbstractMessageTask {
 
-    public ReadMessage() {
-        super("read", "reads message subject");
+    public ReadMessageTask() {
+        super("read", "Reads message subject, sender, and date");
     }
-    
 
     @Override
     protected String executeOnMessage(ProgressStatusCallback callback, CachedMessage message) throws InterruptedException {
@@ -27,11 +24,10 @@ public class ReadMessage extends AbstractMessageTask {
             subject = message.getSubject();
             from = ""+message.getCleanFrom();
             date = ""+message.getSentDate();
-            //System.out.println(message.toShortString());
         } catch (MessagingException e) {
             throw new RuntimeException(e);
         }
-        callback.update(50,subject);
+        callback.update(50, subject);
         return date +"\t"+ from+"\t"+subject;
     }
 }
