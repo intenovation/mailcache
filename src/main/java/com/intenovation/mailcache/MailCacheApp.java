@@ -150,7 +150,7 @@ public class MailCacheApp extends AbstractApplication {
         tasks.add(new SearchBySubjectTask(readMessageTask));
 
 
-       tasks.add(new ListStores(UIServiceRegistry.getUIService()));
+       tasks.add(new ListStores());
 
 
         return tasks;
