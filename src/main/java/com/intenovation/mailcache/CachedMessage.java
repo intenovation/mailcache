@@ -907,7 +907,8 @@ public class CachedMessage extends MimeMessage {
             try {
                 return new Address[]{new InternetAddress(from)};
             } catch (Exception e) {
-                LOGGER.log(Level.WARNING, "Error parsing From address", e);
+                //LOGGER.log(Level.WARNING, "Error parsing From address", e);
+                //always the same 4 emails with this problem
             }
         }
 
