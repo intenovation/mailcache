@@ -136,7 +136,7 @@
                     </descriptorRefs>
                     <archive>
                         <manifest>
-                            <mainClass>com.intenovation.mailcache.MailCacheIntegrated</mainClass>
+                            <mainClass>com.intenovation.mailcache.MailCacheCLI</mainClass>
                         </manifest>
                     </archive>
                 </configuration>
