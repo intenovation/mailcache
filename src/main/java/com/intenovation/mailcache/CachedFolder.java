@@ -1557,7 +1557,7 @@ public class CachedFolder extends Folder {
         // For modes that use server search, search on server
         // Get IMAP folder with lazy initialization
         Folder imapFolder = getImapFolder();
-
+        prepareImapFolderForOperation(Folder.READ_ONLY);
         if (imapFolder != null && imapFolder.isOpen()) {
             try {
                 Message[] serverResults = imapFolder.search(term);
@@ -1571,34 +1571,17 @@ public class CachedFolder extends Folder {
                 LOGGER.info("Server search found " + cachedResults.size() + " messages");
                 return cachedResults.toArray(new CachedMessage[0]);
             } catch (MessagingException e) {
-                LOGGER.log(Level.WARNING, "Error searching on server, falling back to local cache", e);
-                // Continue with local search if mode allows fallback
-                if (!cacheMode.shouldReadFromServerAfterCacheMiss()) {
-                    throw e;
-                }
-            }
-        }
-
-
-        // No Fallback to local cache If we did not find this on the server, which is the leading system, it did not exist.
-        // what we do here is check it really does not exist, otherwise we log an error
-        LOGGER.info("Performing local cache search as fallback");
-        CachedMessage[] messages = getMessages();
-        List<CachedMessage> results = new ArrayList<>();
-
-        for (CachedMessage msg : messages) {
-            if (term.match(msg)) {
-                results.add(msg);
-                System.out.println("found message matching "+term);
-                LOGGER.severe("found message matching  " + term + " that is not on server!");
-                throw new MessagingException("found message matching  " + term + " that is not on server!");
+                LOGGER.log(Level.WARNING, "Error searching on server", e);
+                throw e;
 
             }
         }
+        else {
+            LOGGER.severe("folder null or not open"+imapFolder);
+            throw new MessagingException("folder null or not open: "+imapFolder);
+        }
 
-        //return nothing
-        LOGGER.info("Local search found " + results.size() + " messages");
-        return results.toArray(new CachedMessage[0]);
+
     }
 
     /**
