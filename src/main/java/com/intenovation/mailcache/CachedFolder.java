@@ -55,7 +55,7 @@ public class CachedFolder extends Folder {
     public CachedFolder(CachedStore store, String name, boolean createDirectory) {
         super(store);
         this.cachedStore = store;
-        this.folderName = name;
+        this.folderName = name.trim();
 
         // Setup the cache directory
         if (store.getCacheDirectory() != null) {
@@ -864,10 +864,7 @@ public class CachedFolder extends Folder {
                     }
                 }
             } else {
-
-
                 LOGGER.severe("messagesDir does not exist:"+messagesDir);
-
             }
         }
 
