@@ -30,13 +30,24 @@ public class MailCacheManager implements PasswordChangeListener {
     private PasswordManager passwordManager;
     private File defaultCacheDir;
     private Map<String, CachedStore> openStores = new HashMap<>();
+    private static MailCacheManager instance;
+
+    public static MailCacheManager getInstance(File defaultCacheDir){
+        instance =new MailCacheManager(defaultCacheDir);
+        // Initialize all stores from password manager
+        instance.initializeAllStores();
+        return  instance;
+    }
+    public static MailCacheManager getInstance(){
+        return  instance;
+    }
 
     /**
      * Create a new mail cache manager
      *he password manager to use
      * @param defaultCacheDir The default cache directory
      */
-    public MailCacheManager( File defaultCacheDir) {
+    private MailCacheManager( File defaultCacheDir) {
 
         this.defaultCacheDir = defaultCacheDir;
         passwordManager= PasswordManager.getInstance();
@@ -49,7 +60,7 @@ public class MailCacheManager implements PasswordChangeListener {
      *
      * @return Map of username to CachedStore
      */
-    public Map<String, CachedStore> initializeAllStores() {
+    private void initializeAllStores() {
         List<Password> imapPasswords = passwordManager.getImapPasswords();
 
         for (Password password : imapPasswords) {
@@ -107,7 +118,7 @@ public class MailCacheManager implements PasswordChangeListener {
             }
         }
 
-        return new HashMap<>(openStores);
+        return;
     }
     
     /**
