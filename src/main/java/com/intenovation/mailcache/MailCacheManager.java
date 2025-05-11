@@ -4,6 +4,7 @@ import com.intenovation.mailcache.CachedStore;
 import com.intenovation.mailcache.MailCache;
 import com.intenovation.mailcache.CacheMode;
 import com.intenovation.passwordmanager.*;
+import com.intenovation.passwordmanager.config.GenericEnumType;
 
 import javax.mail.MessagingException;
 import java.io.File;
@@ -71,9 +72,13 @@ public class MailCacheManager implements PasswordChangeListener {
 
                 // Get cache mode (default to ACCELERATED)
                 CacheMode cacheMode = CacheMode.ACCELERATED;
-                CacheMode storedMode = password.getEnumProperty(PROP_CACHE_MODE, CacheMode.class);
-                if (storedMode != null) {
-                    cacheMode = storedMode;
+                String cacheModeStr = GenericEnumType.getEnumValue(password, PROP_CACHE_MODE);
+                if (cacheModeStr != null && !cacheModeStr.isEmpty()) {
+                    try {
+                        cacheMode = CacheMode.valueOf(cacheModeStr);
+                    } catch (IllegalArgumentException e) {
+                        LOGGER.warning("Invalid cache mode: " + cacheModeStr);
+                    }
                 }
 
                 // Ensure cache directory exists at base level
@@ -233,12 +238,19 @@ public class MailCacheManager implements PasswordChangeListener {
      * @param cacheMode The new cache mode
      * @return true if successful, false otherwise
      */
+    /**
+     * Update cache mode for an IMAP account
+     *
+     * @param username The username
+     * @param cacheMode The new cache mode
+     * @return true if successful, false otherwise
+     */
     public boolean updateCacheMode(String username, CacheMode cacheMode) {
         try {
             // Find the password record
             List<Password> passwords = passwordManager.getPasswordConfig().getAllPasswords();
             int index = -1;
-            
+
             for (int i = 0; i < passwords.size(); i++) {
                 Password p = passwords.get(i);
                 if (p.getUsername().equals(username) && p.getType() == PasswordType.IMAP) {
@@ -246,14 +258,14 @@ public class MailCacheManager implements PasswordChangeListener {
                     break;
                 }
             }
-            
+
             if (index == -1) {
                 LOGGER.warning("Password record not found for username: " + username);
                 return false;
             }
-            
-            // Update the enum property
-            return passwordManager.updatePasswordEnum(index, PROP_CACHE_MODE, cacheMode);
+
+            // Update using the string-based method
+            return passwordManager.updatePasswordEnumByString(index, PROP_CACHE_MODE, cacheMode.name());
         } catch (Exception e) {
             LOGGER.log(Level.SEVERE, "Error updating cache mode", e);
             return false;
@@ -356,9 +368,13 @@ public class MailCacheManager implements PasswordChangeListener {
                     }
                     
                     CacheMode cacheMode = CacheMode.ACCELERATED;
-                    CacheMode storedMode = password.getEnumProperty(PROP_CACHE_MODE, CacheMode.class);
-                    if (storedMode != null) {
-                        cacheMode = storedMode;
+                    String cacheModeStr = GenericEnumType.getEnumValue(password, PROP_CACHE_MODE);
+                    if (cacheModeStr != null && !cacheModeStr.isEmpty()) {
+                        try {
+                            cacheMode = CacheMode.valueOf(cacheModeStr);
+                        } catch (IllegalArgumentException e) {
+                            LOGGER.warning("Invalid cache mode: " + cacheModeStr);
+                        }
                     }
                     
                     // Open the store
