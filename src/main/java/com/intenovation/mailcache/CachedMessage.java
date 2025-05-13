@@ -103,14 +103,14 @@ public class CachedMessage extends MimeMessage {
      * Create a new CachedMessage from an IMAP message
      *
      * @param folder      The folder containing this message
-     * @param imapMessage The IMAP message to cache
+     * @param sourceMessage The IMAP message to cache
      * @param overwrite   Whether to overwrite existing cache if it exists
      */
-    public CachedMessage(CachedFolder folder, Message imapMessage, boolean overwrite)
+    public CachedMessage(CachedFolder folder, Message sourceMessage, boolean overwrite)
             throws MessagingException {
         super(((CachedStore) folder.getStore()).getSession());
         this.folder = folder;
-        this.imapMessage = imapMessage;
+        this.imapMessage = sourceMessage;
         this.flags = new Flags();
         this.messageProperties = new Properties();
 
@@ -120,19 +120,44 @@ public class CachedMessage extends MimeMessage {
             messagesDir.mkdirs();
         }
 
-        // Generate formatted directory name using YYYY-MM-DD_Subject format
-        String dirName = MassageDirName.formatMessageDirName(imapMessage);
-
+        // Generate formatted directory name
+        String dirName = MassageDirName.formatMessageDirName(sourceMessage);
         this.messageDir = new File(messagesDir, dirName);
 
         // If the directory exists and we're overwriting, delete it first
         if (overwrite && this.messageDir.exists()) {
-            // Delete the directory contents recursively
             deleteRecursive(this.messageDir);
         }
 
         if (!this.messageDir.exists()) {
             this.messageDir.mkdirs();
+        }
+
+        // Check if source message is a CachedMessage with attachments
+        if (sourceMessage instanceof CachedMessage) {
+            CachedMessage cachedSourceMessage = (CachedMessage) sourceMessage;
+            File sourceAttachmentsDir = new File(cachedSourceMessage.getMessageDirectory(), DIR_ATTACHMENTS);
+
+            // If source has attachments, copy them to destination
+            if (sourceAttachmentsDir.exists() && sourceAttachmentsDir.isDirectory()) {
+                File destAttachmentsDir = new File(this.messageDir, DIR_ATTACHMENTS);
+                if (!destAttachmentsDir.exists()) {
+                    destAttachmentsDir.mkdirs();
+                }
+
+                // Copy each attachment file
+                File[] attachmentFiles = sourceAttachmentsDir.listFiles();
+                if (attachmentFiles != null) {
+                    for (File attachmentFile : attachmentFiles) {
+                        try {
+                            File destFile = new File(destAttachmentsDir, attachmentFile.getName());
+                            copyFile(attachmentFile, destFile);
+                        } catch (IOException e) {
+                            LOGGER.log(Level.WARNING, "Error copying attachment: " + attachmentFile.getName(), e);
+                        }
+                    }
+                }
+            }
         }
 
         // Save to cache
@@ -141,6 +166,21 @@ public class CachedMessage extends MimeMessage {
         // Notify listeners
         fireChangeEvent(new MailCacheChangeEvent(this,
                 MailCacheChangeEvent.ChangeType.MESSAGE_ADDED, this));
+    }
+
+    /**
+     * Helper method to copy a file
+     */
+    private void copyFile(File source, File dest) throws IOException {
+        try (FileInputStream fis = new FileInputStream(source);
+             FileOutputStream fos = new FileOutputStream(dest)) {
+
+            byte[] buffer = new byte[8192];
+            int bytesRead;
+            while ((bytesRead = fis.read(buffer)) != -1) {
+                fos.write(buffer, 0, bytesRead);
+            }
+        }
     }
 
     // Keep the original constructor for backward compatibility
