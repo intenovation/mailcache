@@ -7,19 +7,19 @@ import java.util.Date;
 
 public class MassageDirName {
     /**
-     * Formats a message directory name based on date and subject
-     * Format: YYYY-MM-DD_Subject
+     * Formats a message directory name based on date, time, and subject
+     * Format: YYYY-MM-DD_HH-MM_Subject
      */
     public static String formatMessageDirName(Message message) throws MessagingException {
-        SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd");
+        SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd_HH-mm");
         String prefix = "";
 
-        // Get date
+        // Get date and time
         Date sentDate = message.getSentDate();
         if (sentDate != null) {
             prefix = dateFormat.format(sentDate) + "_";
         } else {
-            // Use current date if no sent date
+            // Use current date and time if no sent date
             prefix = dateFormat.format(new Date()) + "_";
         }
 
@@ -39,5 +39,4 @@ public class MassageDirName {
 
         return prefix + sanitizedSubject;
     }
-
 }
