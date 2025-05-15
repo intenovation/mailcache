@@ -91,7 +91,8 @@ public class MailCacheApp extends AbstractApplication {
         tasks.add(new ListFoldersTask());
 
         // Add the task that applies message reading to all messages in a folder
-        tasks.add(new ApplyMessageTaskToFolder(readMessageTask));
+        tasks.add(new ApplyMessageTaskToFolder(readMessageTask,false));
+        tasks.add(new ApplyMessageTaskToFolder(readMessageTask,true));
 
         // Add a task to synchronize a folder
         tasks.add(new SynchronizeFolderTask());

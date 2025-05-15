@@ -351,7 +351,7 @@ public class CachedFolder extends Folder {
                     if (!subdir.getName().equals("messages") && !subdir.getName().equals("archived_messages") && !subdir.getName().equals("extras")) {
                         String childName = folderName.isEmpty() ?
                                 subdir.getName() :
-                                folderName + "/" + subdir.getName();
+                                folderName + subdir.getName();
                         CachedFolder folder = new CachedFolder(cachedStore, childName, false);
                         // Add change listener to propagate events
                         folder.addChangeListener(event -> fireChangeEvent(event));

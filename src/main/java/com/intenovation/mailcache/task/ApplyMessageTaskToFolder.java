@@ -12,10 +12,12 @@ import javax.mail.MessagingException;
 public class ApplyMessageTaskToFolder extends AbstractFolderTask {
     
     private final AbstractMessageTask messageTask;
+    private final boolean recursive;
     
-    public ApplyMessageTaskToFolder(AbstractMessageTask messageTask) {
-        super("apply-"+messageTask.getName(), "Apply '" + messageTask.getName() + "' to all messages in folder");
+    public ApplyMessageTaskToFolder(AbstractMessageTask messageTask,boolean recursive) {
+        super( "apply-"+messageTask.getName()+(recursive? "-recursive" : ""), "Apply '" + messageTask.getName() +(recursive? "-recursive" : "") + "' to all messages in folder");
         this.messageTask = messageTask;
+        this.recursive = recursive;
     }
     
     @Override
@@ -28,6 +30,14 @@ public class ApplyMessageTaskToFolder extends AbstractFolderTask {
             folder.open(javax.mail.Folder.READ_WRITE);
             
             try {
+
+                if (recursive){
+                    CachedFolder[] list = folder.list();
+                    for (CachedFolder subfolder:list){
+                        executeOnFolder(callback,subfolder);
+                    }
+                }
+
                 int messageCount=folder.getMessageCount();
                 callback.update(0, "messageCount: " + messageCount + " messages");
                 Message[] messages = folder.getMessages();
