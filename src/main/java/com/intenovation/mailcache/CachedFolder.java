@@ -60,7 +60,7 @@ public class CachedFolder extends Folder {
         // Setup the cache directory
         if (store.getCacheDirectory() != null) {
             this.cacheDir = new File(store.getCacheDirectory(),
-                    name.replace('/', File.separatorChar));
+                    name.replace('/', File.separatorChar).trim());
         }
 
         // Create cache directory for this folder if requested
@@ -342,8 +342,8 @@ public class CachedFolder extends Folder {
         List<Folder> folders = new ArrayList<>();
         CacheMode cacheMode = cachedStore.getMode();
 
-        // List from cache always, unless in REFRESH mode which always goes to server
-        if (!cacheMode.shouldReadFromServer() || cacheDir != null) {
+        // List from cache always for offline and accelerated
+        if (!cacheMode.shouldSearchOnServer()) {
             File[] subdirs = cacheDir.listFiles(File::isDirectory);
             if (subdirs != null) {
                 for (File subdir : subdirs) {
@@ -351,7 +351,7 @@ public class CachedFolder extends Folder {
                     if (!subdir.getName().equals("messages") && !subdir.getName().equals("archived_messages") && !subdir.getName().equals("extras")) {
                         String childName = folderName.isEmpty() ?
                                 subdir.getName() :
-                                folderName + subdir.getName();
+                                folderName +"/"+ subdir.getName();
                         CachedFolder folder = new CachedFolder(cachedStore, childName, false);
                         // Add change listener to propagate events
                         folder.addChangeListener(event -> fireChangeEvent(event));
@@ -359,40 +359,39 @@ public class CachedFolder extends Folder {
                     }
                 }
             }
+            return folders.toArray(new CachedFolder[0]);
         }
 
-        // For modes that allow server operations, also list from IMAP
-        if (cacheMode.shouldReadFromServer() || cacheMode.shouldReadFromServerAfterCacheMiss()) {
-            try {
-                // Ensure IMAP folder is initialized
-                Folder imapFolder = getImapFolder();
+        // For modes that allow server operations, list from IMAP
+        try {
+            // Ensure IMAP folder is initialized
+            Folder imapFolder = getImapFolder();
 
-                if (imapFolder != null) {
-                    Folder[] imapFolders = imapFolder.list(pattern);
-                    for (Folder folder : imapFolders) {
-                        // Check if already added from cache
-                        boolean found = false;
-                        for (Folder cacheFolder : folders) {
-                            if (cacheFolder.getFullName().equals(folder.getFullName())) {
-                                found = true;
-                                break;
-                            }
-                        }
-
-                        if (!found) {
-                            CachedFolder cachedFolder = new CachedFolder(cachedStore, folder.getFullName(), true);
-                            // Add change listener to propagate events
-                            cachedFolder.addChangeListener(event -> fireChangeEvent(event));
-                            folders.add(cachedFolder);
+            if (imapFolder != null) {
+                Folder[] imapFolders = imapFolder.list(pattern);
+                for (Folder folder : imapFolders) {
+                    // Check if already added from cache
+                    boolean found = false;
+                    for (Folder cacheFolder : folders) {
+                        if (cacheFolder.getFullName().equals(folder.getFullName())) {
+                            found = true;
+                            break;
                         }
                     }
+
+                    if (!found) {
+                        CachedFolder cachedFolder = new CachedFolder(cachedStore, folder.getFullName(), true);
+                        // Add change listener to propagate events
+                        cachedFolder.addChangeListener(event -> fireChangeEvent(event));
+                        folders.add(cachedFolder);
+                    }
                 }
-            } catch (MessagingException e) {
-                LOGGER.log(Level.WARNING, "Error listing IMAP folders: " + e.getMessage(), e);
-                // Continue with results from cache
-                if (!cacheMode.shouldReadFromServerAfterCacheMiss()) {
-                    throw e; // Rethrow if we can't fall back to cache
-                }
+            }
+        } catch (MessagingException e) {
+            LOGGER.log(Level.WARNING, "Error listing IMAP folders: " + e.getMessage(), e);
+            // Continue with results from cache
+            if (!cacheMode.shouldReadFromServerAfterCacheMiss()) {
+                throw e; // Rethrow if we can't fall back to cache
             }
         }
 
