@@ -1104,24 +1104,9 @@ public class CachedFolder extends Folder {
                             messageValidation(imapMsg);
                         } else {
                             // Create a new MimeMessage from the cached content
-                            LOGGER.fine("Creating new MimeMessage from cached content for message #" + (i+1));
+                            LOGGER.fine("No Valid imapMsg for message #" + (i+1));
 
-                            try {
-                                MimeMessage newMsg = new MimeMessage(cachedStore.getSession(),
-                                        cachedMsg.getInputStream());
-
-                                // Ensure Message-ID is preserved from the cached message
-                                String[] msgIds = cachedMsg.getHeader("Message-ID");
-                                if (msgIds != null && msgIds.length > 0) {
-                                    newMsg.setHeader("Message-ID", msgIds[0]);
-                                    LOGGER.fine("Preserved Message-ID in new MimeMessage: " + msgIds[0]);
-                                }
-                                messageValidation(imapMsg);
-                                imapMessages[i] = newMsg;
-                            } catch (IOException e) {
-                                LOGGER.log(Level.WARNING, "Error creating MimeMessage from cached content", e);
-                                throw new MessagingException("Error creating MimeMessage", e);
-                            }
+                            throw new RuntimeException("No Valid imapMsg for message #" + (i+1));
                         }
                     } else {
                         imapMessages[i] = msgs[i];
