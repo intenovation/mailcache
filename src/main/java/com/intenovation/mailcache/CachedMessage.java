@@ -1958,6 +1958,7 @@ public class CachedMessage extends MimeMessage {
                 return text;
             } catch (Exception e) {
                 LOGGER.log(Level.WARNING, "Error extracting text from PDF: " + attachmentName, e);
+                attachmentFile.renameTo(new File(attachmentFile.getParent(),attachmentFile.getName()+".broken"));
                 return null;
             }
         }
