@@ -1590,7 +1590,14 @@ public class CachedFolder extends Folder {
         File file = new File(extrasDir, sanitizedFilename);
         try (java.io.FileWriter writer = new java.io.FileWriter(file)) {
             writer.write(content);
+            writer.close();
+            System.out.println("File written successfully:"+file.getAbsolutePath());
+            System.out.println("content:"+content);
         }
+        catch (java.io.IOException e) {
+            throw new java.io.IOException("Error writing file", e);
+        }
+
     }
 
     /**
